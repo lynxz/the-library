@@ -22,6 +22,7 @@ Required local settings:
 - `FUNCTIONS_WORKER_RUNTIME`
 - `StorageConnectionString`
 - `JwtSigningKey`
+- `MaxRequestBodySizeBytes` (recommended: `62914560` for 60 MB)
 
 For local development this project is set up to use Azurite. Keep [api/local.settings.json](api/local.settings.json) local only and never commit it.
 
@@ -109,6 +110,7 @@ Before the first GitHub deployment, make sure the Function App already has these
 
 - `StorageConnectionString`
 - `JwtSigningKey`
+- `MaxRequestBodySizeBytes` (recommended: `62914560` for 60 MB)
 
 If you use Key Vault references, also enable a managed identity on the Function App and grant it `get` access to the required secrets.
 
