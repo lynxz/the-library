@@ -74,7 +74,13 @@ jobs:
 
       - name: Fetch Static Web App deployment token
         id: swa_token
-        run: echo "token=$(az staticwebapp secrets list --name \"$AZURE_STATIC_WEB_APP_NAME\" --resource-group \"$AZURE_RESOURCE_GROUP\" --query \"properties.apiKey\" -o tsv)" >> "$GITHUB_OUTPUT"
+        run: |
+          token=$(az staticwebapp secrets list \
+            --name "$AZURE_STATIC_WEB_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query 'properties.apiKey' \
+            --output tsv)
+          echo "token=$token" >> "$GITHUB_OUTPUT"
 
       - name: Deploy frontend
         run: npx swa deploy dist --deployment-token "${{ steps.swa_token.outputs.token }}" --env production

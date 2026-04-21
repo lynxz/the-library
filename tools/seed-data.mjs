@@ -44,7 +44,8 @@ async function seed() {
       Author: "David Thomas & Andrew Hunt",
       Format: "PDF",
       BlobPath: "the-pragmatic-programmer.pdf",
-      Description: "A classic guide to software craftsmanship covering topics from personal responsibility to architectural techniques."
+      Description: "A classic guide to software craftsmanship covering topics from personal responsibility to architectural techniques.",
+      Tags: "software|craftsmanship|engineering"
     },
     {
       partitionKey: "BOOK",
@@ -53,7 +54,8 @@ async function seed() {
       Author: "Robert C. Martin",
       Format: "EPUB",
       BlobPath: "clean-code.epub",
-      Description: "A handbook of agile software craftsmanship with practical advice on writing readable, maintainable code."
+      Description: "A handbook of agile software craftsmanship with practical advice on writing readable, maintainable code.",
+      Tags: "software|clean-code|engineering"
     },
     {
       partitionKey: "BOOK",
@@ -62,7 +64,8 @@ async function seed() {
       Author: "Martin Kleppmann",
       Format: "PDF",
       BlobPath: "designing-data-intensive-apps.pdf",
-      Description: "An in-depth guide to the principles and practicalities of data systems and how to build reliable, scalable applications."
+      Description: "An in-depth guide to the principles and practicalities of data systems and how to build reliable, scalable applications.",
+      Tags: "data|distributed-systems|architecture"
     }
   ];
 
