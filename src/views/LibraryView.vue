@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { getAuthHeaders, clearToken, isAdmin, apiBase } from '../services/auth.js'
+import { getAuthHeaders, clearToken, apiBase } from '../services/auth.js'
 import BookCard from '../components/BookCard.vue'
 
 const router = useRouter()
@@ -95,6 +95,14 @@ function toggleSuggestedTag(tag) {
   fetchBooks()
 }
 
+function onBookTagsUpdated(bookId, tags) {
+  const idx = books.value.findIndex((book) => book.id === bookId)
+  if (idx >= 0) {
+    books.value[idx] = { ...books.value[idx], tags }
+  }
+  updateKnownTags(books.value)
+}
+
 function signOut() {
   clearToken()
   router.push('/login')
@@ -162,12 +170,14 @@ onMounted(() => {
         <BookCard
           v-for="book in books"
           :key="book.id"
+          :id="book.id"
           :title="book.title"
           :author="book.author"
           :format="book.format"
           :blob-path="book.blobPath"
           :description="book.description"
           :tags="book.tags || []"
+          @tags-updated="(tags) => onBookTagsUpdated(book.id, tags)"
         />
       </div>
     </main>
