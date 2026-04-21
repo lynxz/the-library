@@ -1,4 +1,5 @@
 using System.Net;
+using Azure;
 using Azure.Data.Tables;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
@@ -98,7 +99,8 @@ public class UploadBook
         }
 
         var rowKey = Guid.NewGuid().ToString("N");
-        var blobPath = $"{rowKey}{extension.ToLowerInvariant()}";
+        var fileNameBase = ToFileNameBase(title);
+        var blobPath = $"{fileNameBase}{extension.ToLowerInvariant()}";
 
         _logger.LogInformation("Uploading book '{Title}' by {Author} as {BlobPath}", title, author, blobPath);
 
@@ -107,8 +109,30 @@ public class UploadBook
         await containerClient.CreateIfNotExistsAsync();
         var blobClient = containerClient.GetBlobClient(blobPath);
 
+        if (await blobClient.ExistsAsync())
+        {
+            var conflict = req.CreateResponse(HttpStatusCode.Conflict);
+            await conflict.WriteAsJsonAsync(new
+            {
+                error = $"A book file named '{blobPath}' already exists. Use a different title or remove the existing book first."
+            });
+            return conflict;
+        }
+
         using var stream = new MemoryStream(parts.FileContent);
-        await blobClient.UploadAsync(stream, new BlobHttpHeaders { ContentType = formatInfo.ContentType });
+        try
+        {
+            await blobClient.UploadAsync(stream, new BlobHttpHeaders { ContentType = formatInfo.ContentType });
+        }
+        catch (RequestFailedException ex) when (ex.Status == 409)
+        {
+            var conflict = req.CreateResponse(HttpStatusCode.Conflict);
+            await conflict.WriteAsJsonAsync(new
+            {
+                error = $"A book file named '{blobPath}' already exists. Use a different title or remove the existing book first."
+            });
+            return conflict;
+        }
 
         // Insert table entity
         var tableClient = _tableServiceClient.GetTableClient("BookMetadata");
@@ -137,6 +161,14 @@ public class UploadBook
             description = entity.Description
         });
         return response;
+    }
+
+    private static string ToFileNameBase(string title)
+    {
+        var lower = title.ToLowerInvariant();
+        var chars = lower.Where(char.IsLetterOrDigit).ToArray();
+        var sanitized = new string(chars);
+        return string.IsNullOrWhiteSpace(sanitized) ? "book" : sanitized;
     }
 
     private static string? GetBoundary(string contentType)
