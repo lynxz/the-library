@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getAuthHeaders, clearToken, apiBase } from '../services/auth.js'
+import { normalizeTag } from '../services/tags.js'
 import BookCard from '../components/BookCard.vue'
 
 const router = useRouter()
@@ -30,13 +31,6 @@ async function fetchUser() {
 function updateKnownTags(bookList) {
   const tags = bookList.flatMap((book) => Array.isArray(book.tags) ? book.tags : [])
   knownTags.value = [...new Set([...knownTags.value, ...tags])].sort((a, b) => a.localeCompare(b))
-}
-
-function normalizeTag(value) {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9_-]/g, '')
 }
 
 async function fetchBooks() {

@@ -12,9 +12,6 @@ namespace TheLibrary.Api.Functions;
 
 public class UpdateBookTags
 {
-    private const int MaxTagCount = 10;
-    private const int MaxTagLength = 24;
-
     private readonly TableServiceClient _tableServiceClient;
     private readonly JwtHelper _jwtHelper;
     private readonly ILogger<UpdateBookTags> _logger;
@@ -67,19 +64,19 @@ public class UpdateBookTags
             return badRequest;
         }
 
-        var normalizedTags = NormalizeTags(payload.Tags);
+        var normalizedTags = TagNormalization.NormalizeTags(payload.Tags);
 
-        if (normalizedTags.Count > MaxTagCount)
+        if (normalizedTags.Count > TagNormalization.MaxTagCount)
         {
             var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRequest.WriteAsJsonAsync(new { error = $"A maximum of {MaxTagCount} tags is allowed." });
+            await badRequest.WriteAsJsonAsync(new { error = $"A maximum of {TagNormalization.MaxTagCount} tags is allowed." });
             return badRequest;
         }
 
-        if (normalizedTags.Any(t => t.Length > MaxTagLength))
+        if (normalizedTags.Any(t => t.Length > TagNormalization.MaxTagLength))
         {
             var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRequest.WriteAsJsonAsync(new { error = $"Each tag must be {MaxTagLength} characters or fewer." });
+            await badRequest.WriteAsJsonAsync(new { error = $"Each tag must be {TagNormalization.MaxTagLength} characters or fewer." });
             return badRequest;
         }
 
@@ -120,23 +117,6 @@ public class UpdateBookTags
         var response = req.CreateResponse(HttpStatusCode.OK);
         await response.WriteAsJsonAsync(new { id, tags = normalizedTags });
         return response;
-    }
-
-    private static List<string> NormalizeTags(IEnumerable<string> tags)
-    {
-        return tags
-            .Select(t => t ?? string.Empty)
-            .Select(NormalizeTag)
-            .Where(t => !string.IsNullOrWhiteSpace(t))
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-    }
-
-    private static string NormalizeTag(string input)
-    {
-        var lowered = input.ToLowerInvariant().Trim();
-        var chars = lowered.Where(c => char.IsLetterOrDigit(c) || c == '-' || c == '_').ToArray();
-        return new string(chars);
     }
 
     private class UpdateTagsRequest

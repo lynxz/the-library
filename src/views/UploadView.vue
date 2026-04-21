@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { getAuthHeaders, clearToken, apiBase } from '../services/auth.js'
+import { MAX_TAGS, MAX_TAG_LENGTH, normalizeTag } from '../services/tags.js'
 
 const router = useRouter()
 const title = ref('')
@@ -13,18 +14,9 @@ const file = ref(null)
 const submitting = ref(false)
 const error = ref('')
 const success = ref('')
-const MAX_TAGS = 10
-const MAX_TAG_LENGTH = 24
 
 function onFileChange(e) {
   file.value = e.target.files[0] || null
-}
-
-function normalizeTag(value) {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9_-]/g, '')
 }
 
 function addTagFromInput() {
@@ -199,7 +191,7 @@ function signOut() {
               @blur="addTagFromInput"
             />
           </div>
-          <p class="hint">Up to 10 tags. Lowercase letters, numbers, _ and - are allowed.</p>
+          <p class="hint">Up to 10 tags. Lowercase letters, numbers, _, -, + and # are allowed.</p>
         </div>
 
         <div class="form-group">

@@ -36,7 +36,7 @@ public class ListBooks
         _logger.LogInformation("Listing books from table storage");
 
         var query = HttpUtility.ParseQueryString(req.Url.Query);
-        var requiredTags = ParseQueryTags(query["tags"]);
+        var requiredTags = TagNormalization.NormalizeCsvTags(query["tags"]);
 
         var tableClient = _tableServiceClient.GetTableClient("BookMetadata");
         await tableClient.CreateIfNotExistsAsync();
@@ -45,7 +45,7 @@ public class ListBooks
 
         await foreach (var entity in tableClient.QueryAsync<BookMetadata>())
         {
-            var tags = ParseStoredTags(entity.Tags);
+            var tags = TagNormalization.NormalizePipeDelimitedTags(entity.Tags);
 
             if (requiredTags.Count > 0 && !requiredTags.All(tags.Contains))
             {
@@ -67,42 +67,5 @@ public class ListBooks
         var response = req.CreateResponse(System.Net.HttpStatusCode.OK);
         await response.WriteAsJsonAsync(books);
         return response;
-    }
-
-    private static List<string> ParseStoredTags(string? rawTags)
-    {
-        if (string.IsNullOrWhiteSpace(rawTags))
-        {
-            return new List<string>();
-        }
-
-        return rawTags
-            .Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(NormalizeTag)
-            .Where(t => !string.IsNullOrWhiteSpace(t))
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-    }
-
-    private static List<string> ParseQueryTags(string? rawTags)
-    {
-        if (string.IsNullOrWhiteSpace(rawTags))
-        {
-            return new List<string>();
-        }
-
-        return rawTags
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(NormalizeTag)
-            .Where(t => !string.IsNullOrWhiteSpace(t))
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-    }
-
-    private static string NormalizeTag(string input)
-    {
-        var lowered = input.ToLowerInvariant().Trim();
-        var chars = lowered.Where(c => char.IsLetterOrDigit(c) || c == '-' || c == '_').ToArray();
-        return new string(chars);
     }
 }

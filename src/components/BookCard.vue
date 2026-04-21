@@ -1,9 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { getAuthHeaders, apiBase } from '../services/auth.js'
-
-const MAX_TAGS = 10
-const MAX_TAG_LENGTH = 24
+import { MAX_TAGS, MAX_TAG_LENGTH, normalizeTag } from '../services/tags.js'
 
 const props = defineProps({
   id: { type: String, required: true },
@@ -23,13 +21,6 @@ const tagsDraft = ref([])
 const tagInput = ref('')
 const savingTags = ref(false)
 const tagError = ref('')
-
-function normalizeTag(value) {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9_-]/g, '')
-}
 
 function startEditTags() {
   tagsDraft.value = Array.isArray(props.tags) ? [...props.tags] : []
@@ -149,7 +140,7 @@ async function download() {
           @keydown="onTagKeyDown"
           @blur="addTagFromInput"
         />
-        <p class="hint">Up to 10 tags. Lowercase letters, numbers, _ and - are allowed.</p>
+        <p class="hint">Up to 10 tags. Lowercase letters, numbers, _, -, + and # are allowed.</p>
         <p v-if="tagError" class="tag-error">{{ tagError }}</p>
         <div class="tag-actions">
           <button class="small-button" :disabled="savingTags" @click="saveTags">{{ savingTags ? 'Saving...' : 'Save tags' }}</button>
