@@ -7,13 +7,61 @@ const router = useRouter()
 const title = ref('')
 const author = ref('')
 const description = ref('')
+const tags = ref([])
+const tagInput = ref('')
 const file = ref(null)
 const submitting = ref(false)
 const error = ref('')
 const success = ref('')
+const MAX_TAGS = 10
+const MAX_TAG_LENGTH = 24
 
 function onFileChange(e) {
   file.value = e.target.files[0] || null
+}
+
+function normalizeTag(value) {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9_-]/g, '')
+}
+
+function addTagFromInput() {
+  const normalized = normalizeTag(tagInput.value)
+  if (!normalized) {
+    tagInput.value = ''
+    return
+  }
+
+  if (normalized.length > MAX_TAG_LENGTH) {
+    error.value = `Each tag must be ${MAX_TAG_LENGTH} characters or fewer.`
+    return
+  }
+
+  if (tags.value.includes(normalized)) {
+    tagInput.value = ''
+    return
+  }
+
+  if (tags.value.length >= MAX_TAGS) {
+    error.value = `A maximum of ${MAX_TAGS} tags is allowed.`
+    return
+  }
+
+  tags.value.push(normalized)
+  tagInput.value = ''
+}
+
+function removeTag(tag) {
+  tags.value = tags.value.filter((t) => t !== tag)
+}
+
+function onTagKeyDown(e) {
+  if (e.key === 'Enter' || e.key === ',') {
+    e.preventDefault()
+    addTagFromInput()
+  }
 }
 
 async function handleSubmit() {
@@ -43,6 +91,7 @@ async function handleSubmit() {
     formData.append('title', title.value.trim())
     formData.append('author', author.value.trim())
     formData.append('description', description.value.trim())
+    formData.append('tags', tags.value.join(','))
     formData.append('file', file.value)
 
     const res = await fetch(`${apiBase}/api/uploadBook`, {
@@ -60,6 +109,8 @@ async function handleSubmit() {
     title.value = ''
     author.value = ''
     description.value = ''
+    tags.value = []
+    tagInput.value = ''
     file.value = null
     // Reset the file input
     const fileInput = document.querySelector('.file-input')
@@ -122,6 +173,33 @@ function signOut() {
             rows="4"
             :disabled="submitting"
           />
+        </div>
+
+        <div class="form-group">
+          <label for="tags">Tags</label>
+          <div class="tags-input-wrapper">
+            <span v-for="tag in tags" :key="tag" class="tag-chip">
+              {{ tag }}
+              <button
+                type="button"
+                class="tag-remove"
+                :disabled="submitting"
+                @click="removeTag(tag)"
+              >
+                x
+              </button>
+            </span>
+            <input
+              id="tags"
+              v-model="tagInput"
+              type="text"
+              placeholder="Type tag and press Enter"
+              :disabled="submitting"
+              @keydown="onTagKeyDown"
+              @blur="addTagFromInput"
+            />
+          </div>
+          <p class="hint">Up to 10 tags. Lowercase letters, numbers, _ and - are allowed.</p>
         </div>
 
         <div class="form-group">
@@ -244,6 +322,54 @@ function signOut() {
   font-size: 14px;
   font-family: var(--sans);
   transition: border-color 0.2s;
+}
+
+.tags-input-wrapper {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.tags-input-wrapper:focus-within {
+  border-color: var(--accent-border);
+}
+
+.tags-input-wrapper input {
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-h);
+  min-width: 180px;
+  flex: 1;
+  font-size: 14px;
+  font-family: var(--sans);
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.tag-remove {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0;
 }
 
 .form-group input[type="text"]:focus,

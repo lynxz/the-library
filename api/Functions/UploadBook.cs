@@ -14,6 +14,8 @@ namespace TheLibrary.Api.Functions;
 public class UploadBook
 {
     private const long MaxFileSize = 50 * 1024 * 1024; // 50 MB
+    private const int MaxTagCount = 10;
+    private const int MaxTagLength = 24;
 
     private static readonly Dictionary<string, (string Format, string ContentType)> AllowedExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -68,6 +70,7 @@ public class UploadBook
         var title = parts.Fields.GetValueOrDefault("title")?.Trim();
         var author = parts.Fields.GetValueOrDefault("author")?.Trim();
         var description = parts.Fields.GetValueOrDefault("description")?.Trim();
+        var tags = NormalizeTags(parts.Fields.GetValueOrDefault("tags"));
 
         if (string.IsNullOrEmpty(title) || string.IsNullOrEmpty(author))
         {
@@ -80,6 +83,20 @@ public class UploadBook
         {
             var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
             await badRequest.WriteAsJsonAsync(new { error = "A book file is required." });
+            return badRequest;
+        }
+
+        if (tags.Count > MaxTagCount)
+        {
+            var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
+            await badRequest.WriteAsJsonAsync(new { error = $"A maximum of {MaxTagCount} tags is allowed." });
+            return badRequest;
+        }
+
+        if (tags.Any(t => t.Length > MaxTagLength))
+        {
+            var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
+            await badRequest.WriteAsJsonAsync(new { error = $"Each tag must be {MaxTagLength} characters or fewer." });
             return badRequest;
         }
 
@@ -146,7 +163,8 @@ public class UploadBook
             Author = author,
             Format = formatInfo.Format,
             BlobPath = blobPath,
-            Description = string.IsNullOrEmpty(description) ? null : description
+            Description = string.IsNullOrEmpty(description) ? null : description,
+            Tags = string.Join("|", tags)
         };
 
         await tableClient.AddEntityAsync(entity);
@@ -158,9 +176,34 @@ public class UploadBook
             title,
             author,
             format = formatInfo.Format,
-            description = entity.Description
+            description = entity.Description,
+            tags
         });
         return response;
+    }
+
+    private static List<string> NormalizeTags(string? rawTags)
+    {
+        if (string.IsNullOrWhiteSpace(rawTags))
+        {
+            return new List<string>();
+        }
+
+        var tokens = rawTags
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(NormalizeTag)
+            .Where(t => !string.IsNullOrWhiteSpace(t));
+
+        return tokens
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private static string NormalizeTag(string input)
+    {
+        var lowered = input.ToLowerInvariant().Trim();
+        var chars = lowered.Where(c => char.IsLetterOrDigit(c) || c == '-' || c == '_').ToArray();
+        return new string(chars);
     }
 
     private static string ToFileNameBase(string title)

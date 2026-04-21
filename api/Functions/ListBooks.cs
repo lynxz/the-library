@@ -2,6 +2,7 @@ using Azure.Data.Tables;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
+using System.Web;
 using TheLibrary.Api.Models;
 using TheLibrary.Api.Services;
 
@@ -34,6 +35,9 @@ public class ListBooks
 
         _logger.LogInformation("Listing books from table storage");
 
+        var query = HttpUtility.ParseQueryString(req.Url.Query);
+        var requiredTags = ParseQueryTags(query["tags"]);
+
         var tableClient = _tableServiceClient.GetTableClient("BookMetadata");
         await tableClient.CreateIfNotExistsAsync();
 
@@ -41,6 +45,13 @@ public class ListBooks
 
         await foreach (var entity in tableClient.QueryAsync<BookMetadata>())
         {
+            var tags = ParseStoredTags(entity.Tags);
+
+            if (requiredTags.Count > 0 && !requiredTags.All(tags.Contains))
+            {
+                continue;
+            }
+
             books.Add(new
             {
                 id = entity.RowKey,
@@ -48,12 +59,50 @@ public class ListBooks
                 author = entity.Author,
                 format = entity.Format,
                 blobPath = entity.BlobPath,
-                description = entity.Description
+                description = entity.Description,
+                tags
             });
         }
 
         var response = req.CreateResponse(System.Net.HttpStatusCode.OK);
         await response.WriteAsJsonAsync(books);
         return response;
+    }
+
+    private static List<string> ParseStoredTags(string? rawTags)
+    {
+        if (string.IsNullOrWhiteSpace(rawTags))
+        {
+            return new List<string>();
+        }
+
+        return rawTags
+            .Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(NormalizeTag)
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private static List<string> ParseQueryTags(string? rawTags)
+    {
+        if (string.IsNullOrWhiteSpace(rawTags))
+        {
+            return new List<string>();
+        }
+
+        return rawTags
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(NormalizeTag)
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private static string NormalizeTag(string input)
+    {
+        var lowered = input.ToLowerInvariant().Trim();
+        var chars = lowered.Where(c => char.IsLetterOrDigit(c) || c == '-' || c == '_').ToArray();
+        return new string(chars);
     }
 }

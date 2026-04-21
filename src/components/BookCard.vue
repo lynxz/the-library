@@ -7,7 +7,8 @@ const props = defineProps({
   author: { type: String, required: true },
   format: { type: String, required: true },
   blobPath: { type: String, required: true },
-  description: { type: String, default: '' }
+  description: { type: String, default: '' },
+  tags: { type: Array, default: () => [] }
 })
 
 const downloading = ref(false)
@@ -36,6 +37,9 @@ async function download() {
       <span class="format-badge">{{ format }}</span>
       <h2 class="book-title">{{ title }}</h2>
       <p class="book-author">{{ author }}</p>
+      <div v-if="tags.length" class="tags-row">
+        <span v-for="tag in tags" :key="tag" class="tag-pill">{{ tag }}</span>
+      </div>
       <p v-if="description" class="book-description">{{ description }}</p>
     </div>
     <button class="download-button" :disabled="downloading" @click="download">
@@ -93,6 +97,24 @@ async function download() {
   color: var(--text);
   margin: 0;
   line-height: 1.5;
+}
+
+.tags-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+  color: var(--text);
+  font-size: 12px;
 }
 
 .download-button {
