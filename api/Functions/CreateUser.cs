@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Azure;
 using Azure.Data.Tables;
 using Microsoft.Azure.Functions.Worker;
@@ -28,47 +27,26 @@ public class CreateUser
     public async Task<HttpResponseData> Run(
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "useradmin/users")] HttpRequestData req)
     {
-        var (callerUsername, isAdmin) = AuthHelper.GetAuthenticatedUserWithClaims(req, _jwtHelper);
-
-        if (callerUsername is null)
+        var (callerUsername, guardError) = await AuthHelper.RequireAdminUser(req, _jwtHelper);
+        if (guardError is not null)
         {
-            var unauthorized = req.CreateResponse(System.Net.HttpStatusCode.Unauthorized);
-            await unauthorized.WriteAsJsonAsync(new { error = "Not authenticated." });
-            return unauthorized;
+            return guardError;
         }
 
-        if (!isAdmin)
+        var (body, parseError) = await FunctionRequests.TryReadJsonAsync<CreateUserRequest>(req, "Invalid request body.");
+        if (parseError is not null)
         {
-            var forbidden = req.CreateResponse(System.Net.HttpStatusCode.Forbidden);
-            await forbidden.WriteAsJsonAsync(new { error = "Admin access required." });
-            return forbidden;
-        }
-
-        CreateUserRequest? body;
-        try
-        {
-            body = await JsonSerializer.DeserializeAsync<CreateUserRequest>(req.Body,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-        }
-        catch
-        {
-            var badRequest = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-            await badRequest.WriteAsJsonAsync(new { error = "Invalid request body." });
-            return badRequest;
+            return parseError;
         }
 
         if (body is null || string.IsNullOrWhiteSpace(body.Username) || string.IsNullOrWhiteSpace(body.Password))
         {
-            var badRequest = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-            await badRequest.WriteAsJsonAsync(new { error = "Username and password are required." });
-            return badRequest;
+            return await FunctionResponses.Error(req, System.Net.HttpStatusCode.BadRequest, "Username and password are required.");
         }
 
         if (body.Password.Length < 8)
         {
-            var badRequest = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-            await badRequest.WriteAsJsonAsync(new { error = "Password must be at least 8 characters." });
-            return badRequest;
+            return await FunctionResponses.Error(req, System.Net.HttpStatusCode.BadRequest, "Password must be at least 8 characters.");
         }
 
         var tableClient = _tableServiceClient.GetTableClient("Users");
@@ -77,9 +55,7 @@ public class CreateUser
         try
         {
             await tableClient.GetEntityAsync<UserAccount>("USER", body.Username);
-            var conflict = req.CreateResponse(System.Net.HttpStatusCode.Conflict);
-            await conflict.WriteAsJsonAsync(new { error = "A user with that username already exists." });
-            return conflict;
+            return await FunctionResponses.Error(req, System.Net.HttpStatusCode.Conflict, "A user with that username already exists.");
         }
         catch (RequestFailedException ex) when (ex.Status == 404)
         {
@@ -99,8 +75,6 @@ public class CreateUser
         await tableClient.AddEntityAsync(newUser);
         _logger.LogInformation("Admin {Admin} created user: {Username}", callerUsername, body.Username);
 
-        var response = req.CreateResponse(System.Net.HttpStatusCode.Created);
-        await response.WriteAsJsonAsync(new { username = body.Username });
-        return response;
+        return await FunctionResponses.Json(req, System.Net.HttpStatusCode.Created, new { username = body.Username });
     }
 }

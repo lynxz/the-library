@@ -1,7 +1,8 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { getAuthHeaders, apiBase } from '../services/auth.js'
-import { MAX_TAGS, MAX_TAG_LENGTH, normalizeTag } from '../services/tags.js'
+import { ApiError, get, postForm, putJson } from '../services/apiClient.js'
+import { MAX_TAGS, MAX_TAG_LENGTH } from '../services/tags.js'
+import { useTagInput } from '../composables/useTagInput.js'
 import ConfirmModal from './ConfirmModal.vue'
 import AddFormatModal from './AddFormatModal.vue'
 
@@ -22,7 +23,6 @@ const emit = defineEmits(['tags-updated', 'formats-updated'])
 const downloading = ref(false)
 const editingTags = ref(false)
 const tagsDraft = ref([])
-const tagInput = ref('')
 const savingTags = ref(false)
 const tagError = ref('')
 const selectedFormat = ref('')
@@ -34,6 +34,20 @@ const showReplaceConfirm = ref(false)
 const replaceConfirmMessage = ref('')
 const pendingReplaceFormat = ref('')
 let pendingReplaceFile = null
+
+const {
+  tagInput,
+  addTagFromInput,
+  removeTag,
+  onTagKeyDown,
+  resetTagInput
+} = useTagInput({
+  tagsRef: tagsDraft,
+  errorRef: tagError,
+  maxTags: MAX_TAGS,
+  maxTagLength: MAX_TAG_LENGTH,
+  clearErrorOnSuccess: true
+})
 
 const availableFormats = computed(() => {
   const normalized = (Array.isArray(props.formats) ? props.formats : [])
@@ -88,7 +102,7 @@ watch(
 
 function startEditTags() {
   tagsDraft.value = Array.isArray(props.tags) ? [...props.tags] : []
-  tagInput.value = ''
+  resetTagInput()
   tagError.value = ''
   editingTags.value = true
 }
@@ -96,65 +110,19 @@ function startEditTags() {
 function cancelEditTags() {
   editingTags.value = false
   tagsDraft.value = []
-  tagInput.value = ''
+  resetTagInput()
   tagError.value = ''
-}
-
-function addTagFromInput() {
-  const normalized = normalizeTag(tagInput.value)
-  if (!normalized) {
-    tagInput.value = ''
-    return
-  }
-
-  if (normalized.length > MAX_TAG_LENGTH) {
-    tagError.value = `Each tag must be ${MAX_TAG_LENGTH} characters or fewer.`
-    return
-  }
-
-  if (tagsDraft.value.includes(normalized)) {
-    tagInput.value = ''
-    return
-  }
-
-  if (tagsDraft.value.length >= MAX_TAGS) {
-    tagError.value = `A maximum of ${MAX_TAGS} tags is allowed.`
-    return
-  }
-
-  tagError.value = ''
-  tagsDraft.value.push(normalized)
-  tagInput.value = ''
 }
 
 function removeTagDraft(tag) {
-  tagsDraft.value = tagsDraft.value.filter((t) => t !== tag)
-}
-
-function onTagKeyDown(e) {
-  if (e.key === 'Enter' || e.key === ',') {
-    e.preventDefault()
-    addTagFromInput()
-  }
+  removeTag(tag)
 }
 
 async function saveTags() {
   tagError.value = ''
   savingTags.value = true
   try {
-    const res = await fetch(`${apiBase}/api/bookTags/${encodeURIComponent(props.id)}`, {
-      method: 'PUT',
-      headers: {
-        ...getAuthHeaders(),
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ tags: tagsDraft.value })
-    })
-
-    const data = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to update tags.')
-    }
+    const data = await putJson(`/api/bookTags/${encodeURIComponent(props.id)}`, { tags: tagsDraft.value })
 
     emit('tags-updated', data.tags || [...tagsDraft.value])
     editingTags.value = false
@@ -191,25 +159,7 @@ async function doUploadFormat(file, replace) {
     if (replace) formData.append('replaceExisting', 'true')
     formData.append('file', file)
 
-    const res = await fetch(`${apiBase}/api/uploadBook`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: formData
-    })
-
-    const data = await res.json().catch(() => ({}))
-
-    if (res.status === 409 && data.requiresConfirmation) {
-      pendingReplaceFile = file
-      pendingReplaceFormat.value = data.format || ''
-      replaceConfirmMessage.value = data.error || `Replace existing ${data.format || ''} file?`
-      showReplaceConfirm.value = true
-      return
-    }
-
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to add format.')
-    }
+    const data = await postForm('/api/uploadBook', formData)
 
     addFormatFile.value = null
     pendingReplaceFile = null
@@ -223,6 +173,14 @@ async function doUploadFormat(file, replace) {
     }
     pendingReplaceFormat.value = ''
   } catch (e) {
+    if (e instanceof ApiError && e.status === 409 && e.data?.requiresConfirmation) {
+      pendingReplaceFile = file
+      pendingReplaceFormat.value = e.data.format || ''
+      replaceConfirmMessage.value = e.data.error || `Replace existing ${e.data.format || ''} file?`
+      showReplaceConfirm.value = true
+      return
+    }
+
     formatError.value = e.message
   } finally {
     addingFormat.value = false
@@ -255,12 +213,7 @@ async function download() {
 
   downloading.value = true
   try {
-    const res = await fetch(
-      `${apiBase}/api/getDownloadUrl?blobPath=${encodeURIComponent(selectedBlobPath)}`,
-      { headers: getAuthHeaders() }
-    )
-    if (!res.ok) throw new Error('Failed to get download link')
-    const data = await res.json()
+    const data = await get(`/api/getDownloadUrl?blobPath=${encodeURIComponent(selectedBlobPath)}`)
     window.open(data.url, '_blank')
   } catch (e) {
     alert('Download failed: ' + e.message)

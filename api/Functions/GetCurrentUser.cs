@@ -17,17 +17,13 @@ public class GetCurrentUser
     public async Task<HttpResponseData> Run(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "me")] HttpRequestData req)
     {
-        var (username, isAdmin) = AuthHelper.GetAuthenticatedUserWithClaims(req, _jwtHelper);
-
-        if (username is null)
+        var (username, guardError) = await AuthHelper.RequireAuthenticatedUser(req, _jwtHelper);
+        if (guardError is not null)
         {
-            var unauthorized = req.CreateResponse(System.Net.HttpStatusCode.Unauthorized);
-            await unauthorized.WriteAsJsonAsync(new { error = "Not authenticated." });
-            return unauthorized;
+            return guardError;
         }
 
-        var response = req.CreateResponse(System.Net.HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { username, isAdmin });
-        return response;
+        var (_, isAdmin) = AuthHelper.GetAuthenticatedUserWithClaims(req, _jwtHelper);
+        return await FunctionResponses.Json(req, System.Net.HttpStatusCode.OK, new { username, isAdmin });
     }
 }

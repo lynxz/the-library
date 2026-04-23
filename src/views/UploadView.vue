@@ -1,20 +1,30 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { getAuthHeaders, clearToken, apiBase } from '../services/auth.js'
-import { MAX_TAGS, MAX_TAG_LENGTH, normalizeTag } from '../services/tags.js'
+import { clearToken } from '../services/auth.js'
+import { postForm } from '../services/apiClient.js'
+import { MAX_TAGS, MAX_TAG_LENGTH } from '../services/tags.js'
+import { useTagInput } from '../composables/useTagInput.js'
 
 const router = useRouter()
 const title = ref('')
 const author = ref('')
 const description = ref('')
 const tags = ref([])
-const tagInput = ref('')
 const primaryFile = ref(null)
 const secondaryFile = ref(null)
+const primaryFileInput = ref(null)
+const secondaryFileInput = ref(null)
 const submitting = ref(false)
 const error = ref('')
 const success = ref('')
+
+const { tagInput, addTagFromInput, removeTag, onTagKeyDown, resetTagInput } = useTagInput({
+  tagsRef: tags,
+  errorRef: error,
+  maxTags: MAX_TAGS,
+  maxTagLength: MAX_TAG_LENGTH
+})
 
 function onFileChange(e) {
   primaryFile.value = e.target.files[0] || null
@@ -29,43 +39,6 @@ function getFormatFromFileName(name) {
   if (ext === 'pdf') return 'PDF'
   if (ext === 'epub') return 'EPUB'
   return ''
-}
-
-function addTagFromInput() {
-  const normalized = normalizeTag(tagInput.value)
-  if (!normalized) {
-    tagInput.value = ''
-    return
-  }
-
-  if (normalized.length > MAX_TAG_LENGTH) {
-    error.value = `Each tag must be ${MAX_TAG_LENGTH} characters or fewer.`
-    return
-  }
-
-  if (tags.value.includes(normalized)) {
-    tagInput.value = ''
-    return
-  }
-
-  if (tags.value.length >= MAX_TAGS) {
-    error.value = `A maximum of ${MAX_TAGS} tags is allowed.`
-    return
-  }
-
-  tags.value.push(normalized)
-  tagInput.value = ''
-}
-
-function removeTag(tag) {
-  tags.value = tags.value.filter((t) => t !== tag)
-}
-
-function onTagKeyDown(e) {
-  if (e.key === 'Enter' || e.key === ',') {
-    e.preventDefault()
-    addTagFromInput()
-  }
 }
 
 async function handleSubmit() {
@@ -109,33 +82,17 @@ async function handleSubmit() {
     createForm.append('tags', tags.value.join(','))
     createForm.append('file', primaryFile.value)
 
-    const createRes = await fetch(`${apiBase}/api/uploadBook`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: createForm
-    })
-
-    if (!createRes.ok) {
-      const data = await createRes.json().catch(() => ({}))
-      throw new Error(data.error || 'Upload failed.')
-    }
-
-    const created = await createRes.json().catch(() => ({}))
+    const created = await postForm('/api/uploadBook', createForm)
 
     if (secondaryFile.value) {
       const addForm = new FormData()
       addForm.append('bookId', created.id)
       addForm.append('file', secondaryFile.value)
 
-      const addRes = await fetch(`${apiBase}/api/uploadBook`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: addForm
-      })
-
-      if (!addRes.ok) {
-        const data = await addRes.json().catch(() => ({}))
-        throw new Error(data.error || 'Primary format uploaded, but failed to upload second format.')
+      try {
+        await postForm('/api/uploadBook', addForm)
+      } catch (e) {
+        throw new Error(e.message || 'Primary format uploaded, but failed to upload second format.')
       }
     }
 
@@ -146,13 +103,11 @@ async function handleSubmit() {
     author.value = ''
     description.value = ''
     tags.value = []
-    tagInput.value = ''
+    resetTagInput()
     primaryFile.value = null
     secondaryFile.value = null
-    const primaryInput = document.querySelector('.primary-file-input')
-    if (primaryInput) primaryInput.value = ''
-    const secondaryInput = document.querySelector('.secondary-file-input')
-    if (secondaryInput) secondaryInput.value = ''
+    if (primaryFileInput.value) primaryFileInput.value.value = ''
+    if (secondaryFileInput.value) secondaryFileInput.value.value = ''
   } catch (e) {
     error.value = e.message
   } finally {
@@ -244,7 +199,7 @@ function signOut() {
           <label for="file">Primary file <span class="required">*</span></label>
           <input
             id="file"
-            class="primary-file-input"
+            ref="primaryFileInput"
             type="file"
             accept=".pdf,.epub"
             :disabled="submitting"
@@ -257,7 +212,7 @@ function signOut() {
           <label for="file-secondary">Optional second file</label>
           <input
             id="file-secondary"
-            class="secondary-file-input"
+            ref="secondaryFileInput"
             type="file"
             accept=".pdf,.epub"
             :disabled="submitting"

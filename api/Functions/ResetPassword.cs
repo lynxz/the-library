@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Azure;
 using Azure.Data.Tables;
 using Microsoft.Azure.Functions.Worker;
@@ -29,47 +28,26 @@ public class ResetPassword
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "useradmin/users/{targetUsername}/reset-password")] HttpRequestData req,
         string targetUsername)
     {
-        var (callerUsername, isAdmin) = AuthHelper.GetAuthenticatedUserWithClaims(req, _jwtHelper);
-
-        if (callerUsername is null)
+        var (callerUsername, guardError) = await AuthHelper.RequireAdminUser(req, _jwtHelper);
+        if (guardError is not null)
         {
-            var unauthorized = req.CreateResponse(System.Net.HttpStatusCode.Unauthorized);
-            await unauthorized.WriteAsJsonAsync(new { error = "Not authenticated." });
-            return unauthorized;
+            return guardError;
         }
 
-        if (!isAdmin)
+        var (body, parseError) = await FunctionRequests.TryReadJsonAsync<ResetPasswordRequest>(req, "Invalid request body.");
+        if (parseError is not null)
         {
-            var forbidden = req.CreateResponse(System.Net.HttpStatusCode.Forbidden);
-            await forbidden.WriteAsJsonAsync(new { error = "Admin access required." });
-            return forbidden;
-        }
-
-        ResetPasswordRequest? body;
-        try
-        {
-            body = await JsonSerializer.DeserializeAsync<ResetPasswordRequest>(req.Body,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-        }
-        catch
-        {
-            var badRequest = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-            await badRequest.WriteAsJsonAsync(new { error = "Invalid request body." });
-            return badRequest;
+            return parseError;
         }
 
         if (body is null || string.IsNullOrWhiteSpace(body.NewPassword))
         {
-            var badRequest = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-            await badRequest.WriteAsJsonAsync(new { error = "New password is required." });
-            return badRequest;
+            return await FunctionResponses.Error(req, System.Net.HttpStatusCode.BadRequest, "New password is required.");
         }
 
         if (body.NewPassword.Length < 8)
         {
-            var badRequest = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-            await badRequest.WriteAsJsonAsync(new { error = "Password must be at least 8 characters." });
-            return badRequest;
+            return await FunctionResponses.Error(req, System.Net.HttpStatusCode.BadRequest, "Password must be at least 8 characters.");
         }
 
         var tableClient = _tableServiceClient.GetTableClient("Users");
@@ -82,9 +60,7 @@ public class ResetPassword
         }
         catch (RequestFailedException ex) when (ex.Status == 404)
         {
-            var notFound = req.CreateResponse(System.Net.HttpStatusCode.NotFound);
-            await notFound.WriteAsJsonAsync(new { error = "User not found." });
-            return notFound;
+            return await FunctionResponses.Error(req, System.Net.HttpStatusCode.NotFound, "User not found.");
         }
 
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(body.NewPassword);
@@ -92,8 +68,6 @@ public class ResetPassword
 
         _logger.LogInformation("Admin {Admin} reset password for user: {Username}", callerUsername, targetUsername);
 
-        var response = req.CreateResponse(System.Net.HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = "Password reset successfully." });
-        return response;
+        return await FunctionResponses.Json(req, System.Net.HttpStatusCode.OK, new { message = "Password reset successfully." });
     }
 }

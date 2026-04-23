@@ -24,12 +24,10 @@ public class GetDownloadUrl
     public async Task<HttpResponseData> Run(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "getDownloadUrl")] HttpRequestData req)
     {
-        var username = AuthHelper.GetAuthenticatedUser(req, _jwtHelper);
-        if (username is null)
+        var (_, guardError) = await AuthHelper.RequireAuthenticatedUser(req, _jwtHelper);
+        if (guardError is not null)
         {
-            var unauthorized = req.CreateResponse(System.Net.HttpStatusCode.Unauthorized);
-            await unauthorized.WriteAsJsonAsync(new { error = "Not authenticated." });
-            return unauthorized;
+            return guardError;
         }
 
         var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
@@ -37,17 +35,13 @@ public class GetDownloadUrl
 
         if (string.IsNullOrWhiteSpace(blobPath))
         {
-            var badRequest = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-            await badRequest.WriteAsJsonAsync(new { error = "blobPath query parameter is required." });
-            return badRequest;
+            return await FunctionResponses.Error(req, System.Net.HttpStatusCode.BadRequest, "blobPath query parameter is required.");
         }
 
         // Sanitize: reject path traversal and absolute paths
         if (blobPath.Contains("..") || Path.IsPathRooted(blobPath) || blobPath.Contains('\\'))
         {
-            var forbidden = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-            await forbidden.WriteAsJsonAsync(new { error = "Invalid blob path." });
-            return forbidden;
+            return await FunctionResponses.Error(req, System.Net.HttpStatusCode.BadRequest, "Invalid blob path.");
         }
 
         _logger.LogInformation("Generating download URL for blob: {BlobPath}", blobPath);
@@ -57,9 +51,7 @@ public class GetDownloadUrl
 
         if (!await blobClient.ExistsAsync())
         {
-            var notFound = req.CreateResponse(System.Net.HttpStatusCode.NotFound);
-            await notFound.WriteAsJsonAsync(new { error = "Book not found." });
-            return notFound;
+            return await FunctionResponses.Error(req, System.Net.HttpStatusCode.NotFound, "Book not found.");
         }
 
         // Generate a SAS token valid for 5 minutes (read-only)
@@ -74,8 +66,6 @@ public class GetDownloadUrl
 
         var sasUri = blobClient.GenerateSasUri(sasBuilder);
 
-        var response = req.CreateResponse(System.Net.HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { url = sasUri.ToString() });
-        return response;
+        return await FunctionResponses.Json(req, System.Net.HttpStatusCode.OK, new { url = sasUri.ToString() });
     }
 }

@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text.Json;
 using Azure;
 using Azure.Data.Tables;
 using Microsoft.Azure.Functions.Worker;
@@ -28,56 +27,38 @@ public class UpdateBookTags
         [HttpTrigger(AuthorizationLevel.Anonymous, "put", "patch", Route = "bookTags/{id}")] HttpRequestData req,
         string id)
     {
-        var username = AuthHelper.GetAuthenticatedUser(req, _jwtHelper);
-        if (username is null)
+        var (username, guardError) = await AuthHelper.RequireAuthenticatedUser(req, _jwtHelper);
+        if (guardError is not null)
         {
-            var unauthorized = req.CreateResponse(HttpStatusCode.Unauthorized);
-            await unauthorized.WriteAsJsonAsync(new { error = "Not authenticated." });
-            return unauthorized;
+            return guardError;
         }
 
         if (string.IsNullOrWhiteSpace(id))
         {
-            var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRequest.WriteAsJsonAsync(new { error = "Book id is required." });
-            return badRequest;
+            return await FunctionResponses.Error(req, HttpStatusCode.BadRequest, "Book id is required.");
         }
 
-        UpdateTagsRequest? payload;
-        try
+        var (payload, parseError) = await FunctionRequests.TryReadJsonAsync<UpdateTagsRequest>(req, "Invalid JSON payload.");
+        if (parseError is not null)
         {
-            payload = await JsonSerializer.DeserializeAsync<UpdateTagsRequest>(
-                req.Body,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-        }
-        catch
-        {
-            var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRequest.WriteAsJsonAsync(new { error = "Invalid JSON payload." });
-            return badRequest;
+            return parseError;
         }
 
         if (payload?.Tags is null)
         {
-            var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRequest.WriteAsJsonAsync(new { error = "tags is required." });
-            return badRequest;
+            return await FunctionResponses.Error(req, HttpStatusCode.BadRequest, "tags is required.");
         }
 
         var normalizedTags = TagNormalization.NormalizeTags(payload.Tags);
 
         if (normalizedTags.Count > TagNormalization.MaxTagCount)
         {
-            var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRequest.WriteAsJsonAsync(new { error = $"A maximum of {TagNormalization.MaxTagCount} tags is allowed." });
-            return badRequest;
+            return await FunctionResponses.Error(req, HttpStatusCode.BadRequest, $"A maximum of {TagNormalization.MaxTagCount} tags is allowed.");
         }
 
         if (normalizedTags.Any(t => t.Length > TagNormalization.MaxTagLength))
         {
-            var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRequest.WriteAsJsonAsync(new { error = $"Each tag must be {TagNormalization.MaxTagLength} characters or fewer." });
-            return badRequest;
+            return await FunctionResponses.Error(req, HttpStatusCode.BadRequest, $"Each tag must be {TagNormalization.MaxTagLength} characters or fewer.");
         }
 
         var tableClient = _tableServiceClient.GetTableClient("BookMetadata");
@@ -86,17 +67,13 @@ public class UpdateBookTags
         var existing = await tableClient.GetEntityIfExistsAsync<BookMetadata>("BOOK", id);
         if (!existing.HasValue)
         {
-            var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-            await notFound.WriteAsJsonAsync(new { error = "Book not found." });
-            return notFound;
+            return await FunctionResponses.Error(req, HttpStatusCode.NotFound, "Book not found.");
         }
 
         var entity = existing.Value;
         if (entity is null)
         {
-            var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-            await notFound.WriteAsJsonAsync(new { error = "Book not found." });
-            return notFound;
+            return await FunctionResponses.Error(req, HttpStatusCode.NotFound, "Book not found.");
         }
 
         entity.Tags = string.Join("|", normalizedTags);
@@ -107,16 +84,12 @@ public class UpdateBookTags
         }
         catch (RequestFailedException ex) when (ex.Status == 412)
         {
-            var conflict = req.CreateResponse(HttpStatusCode.Conflict);
-            await conflict.WriteAsJsonAsync(new { error = "Book was modified by another request. Please retry." });
-            return conflict;
+            return await FunctionResponses.Error(req, HttpStatusCode.Conflict, "Book was modified by another request. Please retry.");
         }
 
         _logger.LogInformation("User {User} updated tags for book {BookId}", username, id);
 
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { id, tags = normalizedTags });
-        return response;
+        return await FunctionResponses.Json(req, HttpStatusCode.OK, new { id, tags = normalizedTags });
     }
 
     private class UpdateTagsRequest

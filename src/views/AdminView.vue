@@ -1,7 +1,9 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { getAuthHeaders, clearToken, isAdmin as checkIsAdmin, apiBase } from '../services/auth.js'
+import { clearToken } from '../services/auth.js'
+import { get, postJson } from '../services/apiClient.js'
+import BaseModal from '../components/BaseModal.vue'
 
 const router = useRouter()
 const users = ref([])
@@ -25,11 +27,8 @@ const resetting = ref(false)
 
 async function fetchUser() {
   try {
-    const res = await fetch(`${apiBase}/api/me`, { headers: getAuthHeaders() })
-    if (res.ok) {
-      const data = await res.json()
-      userName.value = data.username
-    }
+    const data = await get('/api/me')
+    userName.value = data.username
   } catch {
     // ignore
   }
@@ -37,9 +36,7 @@ async function fetchUser() {
 
 async function fetchUsers() {
   try {
-    const res = await fetch(`${apiBase}/api/useradmin/users`, { headers: getAuthHeaders() })
-    if (!res.ok) throw new Error('Failed to load users')
-    users.value = await res.json()
+    users.value = await get('/api/useradmin/users')
   } catch (e) {
     error.value = e.message
   } finally {
@@ -53,25 +50,17 @@ async function handleCreateUser() {
   creating.value = true
 
   try {
-    const res = await fetch(`${apiBase}/api/useradmin/users`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-      body: JSON.stringify({ username: newUsername.value, password: newPassword.value })
+    const data = await postJson('/api/useradmin/users', {
+      username: newUsername.value,
+      password: newPassword.value
     })
-
-    const data = await res.json()
-
-    if (!res.ok) {
-      createError.value = data.error || 'Failed to create user.'
-      return
-    }
 
     createSuccess.value = `User "${data.username}" created successfully.`
     newUsername.value = ''
     newPassword.value = ''
     await fetchUsers()
-  } catch {
-    createError.value = 'Unable to connect to the server.'
+  } catch (e) {
+    createError.value = e.message || 'Unable to connect to the server.'
   } finally {
     creating.value = false
   }
@@ -97,24 +86,15 @@ async function handleResetPassword() {
   resetting.value = true
 
   try {
-    const res = await fetch(`${apiBase}/api/useradmin/users/${encodeURIComponent(resetTarget.value)}/reset-password`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-      body: JSON.stringify({ newPassword: resetPassword.value })
+    await postJson(`/api/useradmin/users/${encodeURIComponent(resetTarget.value)}/reset-password`, {
+      newPassword: resetPassword.value
     })
-
-    const data = await res.json()
-
-    if (!res.ok) {
-      resetError.value = data.error || 'Failed to reset password.'
-      return
-    }
 
     resetSuccess.value = `Password for "${resetTarget.value}" reset successfully.`
     resetTarget.value = null
     resetPassword.value = ''
-  } catch {
-    resetError.value = 'Unable to connect to the server.'
+  } catch (e) {
+    resetError.value = e.message || 'Unable to connect to the server.'
   } finally {
     resetting.value = false
   }
@@ -193,25 +173,22 @@ onMounted(() => {
       </section>
 
       <!-- Reset Password Modal -->
-      <div v-if="resetTarget" class="modal-overlay" @click.self="cancelReset">
-        <div class="modal">
-          <h3>Reset password for "{{ resetTarget }}"</h3>
-          <form @submit.prevent="handleResetPassword" class="admin-form">
-            <div class="form-field">
-              <label for="reset-password">New password</label>
-              <input id="reset-password" v-model="resetPassword" type="password" required minlength="8" />
-            </div>
-            <p v-if="resetError" class="error-message">{{ resetError }}</p>
-            <p v-if="resetSuccess" class="success-message">{{ resetSuccess }}</p>
-            <div class="modal-actions">
-              <button type="button" class="cancel-button" @click="cancelReset">Cancel</button>
-              <button type="submit" class="action-button" :disabled="resetting">
-                {{ resetting ? 'Resetting...' : 'Reset password' }}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
+      <BaseModal v-if="resetTarget" :title="'Reset password for ' + resetTarget" @close="cancelReset">
+        <form @submit.prevent="handleResetPassword" class="admin-form">
+          <div class="form-field">
+            <label for="reset-password">New password</label>
+            <input id="reset-password" v-model="resetPassword" type="password" required minlength="8" />
+          </div>
+          <p v-if="resetError" class="error-message">{{ resetError }}</p>
+          <p v-if="resetSuccess" class="success-message">{{ resetSuccess }}</p>
+          <div class="modal-actions">
+            <button type="button" class="cancel-button" @click="cancelReset">Cancel</button>
+            <button type="submit" class="action-button" :disabled="resetting">
+              {{ resetting ? 'Resetting...' : 'Reset password' }}
+            </button>
+          </div>
+        </form>
+      </BaseModal>
     </main>
   </div>
 </template>
@@ -419,35 +396,6 @@ onMounted(() => {
 
 .table-action:hover {
   border-color: var(--accent-border);
-}
-
-/* Modal */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 100;
-}
-
-.modal {
-  background: var(--bg);
-  border-radius: 12px;
-  padding: 28px;
-  max-width: 420px;
-  width: 100%;
-  box-shadow: var(--shadow);
-}
-
-.modal h3 {
-  font-size: 18px;
-  margin: 0 0 20px;
-  color: var(--text-h);
 }
 
 .modal-actions {

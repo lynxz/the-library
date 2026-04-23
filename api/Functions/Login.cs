@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Azure;
 using Azure.Data.Tables;
 using Microsoft.Azure.Functions.Worker;
@@ -28,24 +27,15 @@ public class Login
     public async Task<HttpResponseData> Run(
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "login")] HttpRequestData req)
     {
-        LoginRequest? body;
-        try
+        var (body, parseError) = await FunctionRequests.TryReadJsonAsync<LoginRequest>(req, "Invalid request body.");
+        if (parseError is not null)
         {
-            body = await JsonSerializer.DeserializeAsync<LoginRequest>(req.Body,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-        }
-        catch
-        {
-            var badRequest = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-            await badRequest.WriteAsJsonAsync(new { error = "Invalid request body." });
-            return badRequest;
+            return parseError;
         }
 
         if (body is null || string.IsNullOrWhiteSpace(body.Username) || string.IsNullOrWhiteSpace(body.Password))
         {
-            var badRequest = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-            await badRequest.WriteAsJsonAsync(new { error = "Username and password are required." });
-            return badRequest;
+            return await FunctionResponses.Error(req, System.Net.HttpStatusCode.BadRequest, "Username and password are required.");
         }
 
         var tableClient = _tableServiceClient.GetTableClient("Users");
@@ -64,17 +54,13 @@ public class Login
         if (user is null || !BCrypt.Net.BCrypt.Verify(body.Password, user.PasswordHash))
         {
             _logger.LogWarning("Failed login attempt for user: {Username}", body.Username);
-            var unauthorized = req.CreateResponse(System.Net.HttpStatusCode.Unauthorized);
-            await unauthorized.WriteAsJsonAsync(new { error = "Invalid username or password." });
-            return unauthorized;
+            return await FunctionResponses.Error(req, System.Net.HttpStatusCode.Unauthorized, "Invalid username or password.");
         }
 
         _logger.LogInformation("Successful login for user: {Username}", body.Username);
 
         var token = _jwtHelper.GenerateToken(body.Username, user.IsAdmin);
 
-        var response = req.CreateResponse(System.Net.HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { token, username = body.Username, isAdmin = user.IsAdmin });
-        return response;
+        return await FunctionResponses.Json(req, System.Net.HttpStatusCode.OK, new { token, username = body.Username, isAdmin = user.IsAdmin });
     }
 }

@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { getAuthHeaders, clearToken, setAdmin, apiBase } from '../services/auth.js'
+import { clearToken, setAdmin } from '../services/auth.js'
+import { get } from '../services/apiClient.js'
 import LoginView from '../views/LoginView.vue'
 import LibraryView from '../views/LibraryView.vue'
 import AdminView from '../views/AdminView.vue'
@@ -39,17 +40,14 @@ router.beforeEach(async (to) => {
   if (to.meta.public) return true
 
   try {
-    const res = await fetch(`${apiBase}/api/me`, { headers: getAuthHeaders() })
-    if (res.ok) {
-      const data = await res.json()
-      setAdmin(data.isAdmin)
+    const data = await get('/api/me')
+    setAdmin(data.isAdmin)
 
-      if (to.meta.requiresAdmin && !data.isAdmin) {
-        return { name: 'Library' }
-      }
-
-      return true
+    if (to.meta.requiresAdmin && !data.isAdmin) {
+      return { name: 'Library' }
     }
+
+    return true
   } catch {
     // server unreachable
   }

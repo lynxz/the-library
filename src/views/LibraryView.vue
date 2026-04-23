@@ -1,8 +1,9 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { getAuthHeaders, clearToken, apiBase } from '../services/auth.js'
-import { normalizeTag } from '../services/tags.js'
+import { clearToken } from '../services/auth.js'
+import { get } from '../services/apiClient.js'
+import { useTagInput } from '../composables/useTagInput.js'
 import BookCard from '../components/BookCard.vue'
 
 const router = useRouter()
@@ -12,17 +13,15 @@ const error = ref(null)
 const userName = ref('')
 const showAdmin = ref(false)
 const selectedTags = ref([])
-const tagInput = ref('')
 const knownTags = ref([])
+
+const { tagInput, addTagFromInput, removeTag } = useTagInput({ tagsRef: selectedTags })
 
 async function fetchUser() {
   try {
-    const res = await fetch(`${apiBase}/api/me`, { headers: getAuthHeaders() })
-    if (res.ok) {
-      const data = await res.json()
-      userName.value = data.username
-      showAdmin.value = data.isAdmin
-    }
+    const data = await get('/api/me')
+    userName.value = data.username
+    showAdmin.value = data.isAdmin
   } catch {
     // ignore - user info is optional for display
   }
@@ -40,10 +39,8 @@ async function fetchBooks() {
       query.set('tags', selectedTags.value.join(','))
     }
 
-    const url = query.toString() ? `${apiBase}/api/listBooks?${query.toString()}` : `${apiBase}/api/listBooks`
-    const res = await fetch(url, { headers: getAuthHeaders() })
-    if (!res.ok) throw new Error('Failed to load books')
-    books.value = await res.json()
+    const url = query.toString() ? `/api/listBooks?${query.toString()}` : '/api/listBooks'
+    books.value = await get(url)
     updateKnownTags(books.value)
   } catch (e) {
     error.value = e.message
@@ -53,20 +50,21 @@ async function fetchBooks() {
 }
 
 function addSelectedTag() {
-  const normalized = normalizeTag(tagInput.value)
-  if (!normalized || selectedTags.value.includes(normalized)) {
-    tagInput.value = ''
+  const added = addTagFromInput()
+  if (!added) {
     return
   }
 
-  selectedTags.value.push(normalized)
-  tagInput.value = ''
   loading.value = true
   fetchBooks()
 }
 
 function removeSelectedTag(tag) {
-  selectedTags.value = selectedTags.value.filter((t) => t !== tag)
+  const removed = removeTag(tag)
+  if (!removed) {
+    return
+  }
+
   loading.value = true
   fetchBooks()
 }

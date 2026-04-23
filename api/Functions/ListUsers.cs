@@ -21,20 +21,10 @@ public class ListUsers
     public async Task<HttpResponseData> Run(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "useradmin/users")] HttpRequestData req)
     {
-        var (username, isAdmin) = AuthHelper.GetAuthenticatedUserWithClaims(req, _jwtHelper);
-
-        if (username is null)
+        var (_, guardError) = await AuthHelper.RequireAdminUser(req, _jwtHelper);
+        if (guardError is not null)
         {
-            var unauthorized = req.CreateResponse(System.Net.HttpStatusCode.Unauthorized);
-            await unauthorized.WriteAsJsonAsync(new { error = "Not authenticated." });
-            return unauthorized;
-        }
-
-        if (!isAdmin)
-        {
-            var forbidden = req.CreateResponse(System.Net.HttpStatusCode.Forbidden);
-            await forbidden.WriteAsJsonAsync(new { error = "Admin access required." });
-            return forbidden;
+            return guardError;
         }
 
         var tableClient = _tableServiceClient.GetTableClient("Users");
@@ -45,8 +35,6 @@ public class ListUsers
             users.Add(new { username = entity.RowKey, isAdmin = entity.IsAdmin });
         }
 
-        var response = req.CreateResponse(System.Net.HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(users);
-        return response;
+        return await FunctionResponses.Json(req, System.Net.HttpStatusCode.OK, users);
     }
 }

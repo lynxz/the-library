@@ -190,9 +190,7 @@ public class UploadBook
                 return conflict;
             }
 
-            var updatedResponse = req.CreateResponse(HttpStatusCode.OK);
-            await updatedResponse.WriteAsJsonAsync(ToBookResponse(existingEntity));
-            return updatedResponse;
+            return await FunctionResponses.Json(req, HttpStatusCode.OK, BookResponseMapper.ToResponse(existingEntity));
         }
 
         if (string.IsNullOrEmpty(title) || string.IsNullOrEmpty(author))
@@ -256,29 +254,7 @@ public class UploadBook
 
         await tableClient.AddEntityAsync(entity);
 
-        var response = req.CreateResponse(HttpStatusCode.Created);
-        await response.WriteAsJsonAsync(ToBookResponse(entity));
-        return response;
-    }
-
-    private static object ToBookResponse(BookMetadata entity)
-    {
-        var blobPaths = BookFormatVariants.Read(entity);
-        var formats = BookFormatVariants.GetFormats(blobPaths);
-        var tags = TagNormalization.NormalizePipeDelimitedTags(entity.Tags);
-
-        return new
-        {
-            id = entity.RowKey,
-            title = entity.Title,
-            author = entity.Author,
-            format = entity.Format,
-            blobPath = entity.BlobPath,
-            formats,
-            blobPaths,
-            description = entity.Description,
-            tags
-        };
+        return await FunctionResponses.Json(req, HttpStatusCode.Created, BookResponseMapper.ToResponse(entity));
     }
 
     private static string ToFileNameBase(string title)

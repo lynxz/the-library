@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
+import BaseModal from './BaseModal.vue'
 
 const props = defineProps({
   format: { type: String, required: true },
@@ -37,60 +38,33 @@ const displayError = computed(() => validationError.value || props.apiError)
 </script>
 
 <template>
-  <Teleport to="body">
-    <div class="modal-backdrop" @click.self="emit('cancel')">
-      <div class="modal" role="dialog" aria-modal="true" :aria-label="`Add ${format} format`">
-        <h3 class="modal-title">Add {{ format }} format</h3>
-        <p class="modal-hint">Upload a .{{ format.toLowerCase() }} file to make this book available in {{ format }} format.</p>
-        <label class="file-label">
-          <input
-            type="file"
-            :accept="accept"
-            :disabled="uploading"
-            @change="onFileChange"
-          />
-        </label>
-        <p v-if="displayError" class="modal-error">{{ displayError }}</p>
-        <div class="modal-actions">
-          <button class="modal-cancel" :disabled="uploading" @click="emit('cancel')">Cancel</button>
-          <button class="modal-confirm" :disabled="uploading" @click="submit">
-            {{ uploading ? 'Uploading…' : `Upload ${format}` }}
-          </button>
-        </div>
+  <BaseModal :title="`Add ${format} format`" :aria-label="`Add ${format} format`" @close="emit('cancel')">
+    <div class="modal-content">
+      <p class="modal-hint">Upload a .{{ format.toLowerCase() }} file to make this book available in {{ format }} format.</p>
+      <label class="file-label">
+        <input
+          type="file"
+          :accept="accept"
+          :disabled="uploading"
+          @change="onFileChange"
+        />
+      </label>
+      <p v-if="displayError" class="modal-error">{{ displayError }}</p>
+      <div class="modal-actions">
+        <button class="modal-cancel" :disabled="uploading" @click="emit('cancel')">Cancel</button>
+        <button class="modal-confirm" :disabled="uploading" @click="submit">
+          {{ uploading ? 'Uploading...' : `Upload ${format}` }}
+        </button>
       </div>
     </div>
-  </Teleport>
+  </BaseModal>
 </template>
 
 <style scoped>
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.modal {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 28px 28px 24px;
-  max-width: 420px;
-  width: calc(100% - 40px);
-  box-shadow: var(--shadow);
+.modal-content {
   display: flex;
   flex-direction: column;
   gap: 14px;
-}
-
-.modal-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-h);
-  margin: 0;
 }
 
 .modal-hint {

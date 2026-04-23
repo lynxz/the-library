@@ -1,7 +1,8 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { setToken, setAdmin, apiBase } from '../services/auth.js'
+import { setToken, setAdmin } from '../services/auth.js'
+import { postJson } from '../services/apiClient.js'
 
 const router = useRouter()
 const username = ref('')
@@ -14,24 +15,16 @@ async function handleLogin() {
   loading.value = true
 
   try {
-    const res = await fetch(`${apiBase}/api/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: username.value, password: password.value })
-    })
-
-    const data = await res.json()
-
-    if (!res.ok) {
-      error.value = data.error || 'Login failed.'
-      return
-    }
+    const data = await postJson('/api/login', {
+      username: username.value,
+      password: password.value
+    }, { auth: false })
 
     setToken(data.token)
     setAdmin(data.isAdmin)
     router.push('/')
-  } catch {
-    error.value = 'Unable to connect to the server.'
+  } catch (e) {
+    error.value = e.message || 'Login failed.'
   } finally {
     loading.value = false
   }

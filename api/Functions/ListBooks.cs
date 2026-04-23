@@ -25,12 +25,10 @@ public class ListBooks
     public async Task<HttpResponseData> Run(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "listBooks")] HttpRequestData req)
     {
-        var username = AuthHelper.GetAuthenticatedUser(req, _jwtHelper);
-        if (username is null)
+        var (_, guardError) = await AuthHelper.RequireAuthenticatedUser(req, _jwtHelper);
+        if (guardError is not null)
         {
-            var unauthorized = req.CreateResponse(System.Net.HttpStatusCode.Unauthorized);
-            await unauthorized.WriteAsJsonAsync(new { error = "Not authenticated." });
-            return unauthorized;
+            return guardError;
         }
 
         _logger.LogInformation("Listing books from table storage");
@@ -45,31 +43,16 @@ public class ListBooks
 
         await foreach (var entity in tableClient.QueryAsync<BookMetadata>())
         {
-            var tags = TagNormalization.NormalizePipeDelimitedTags(entity.Tags);
-            var blobPaths = BookFormatVariants.Read(entity);
-            var formats = BookFormatVariants.GetFormats(blobPaths);
+            var tags = BookResponseMapper.GetTags(entity);
 
             if (requiredTags.Count > 0 && !requiredTags.All(tags.Contains))
             {
                 continue;
             }
 
-            books.Add(new
-            {
-                id = entity.RowKey,
-                title = entity.Title,
-                author = entity.Author,
-                format = entity.Format,
-                blobPath = entity.BlobPath,
-                formats,
-                blobPaths,
-                description = entity.Description,
-                tags
-            });
+            books.Add(BookResponseMapper.ToResponse(entity, tags));
         }
 
-        var response = req.CreateResponse(System.Net.HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(books);
-        return response;
+        return await FunctionResponses.Json(req, System.Net.HttpStatusCode.OK, books);
     }
 }
