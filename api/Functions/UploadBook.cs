@@ -65,17 +65,12 @@ public class UploadBook
 
         var parts = await ParseMultipartAsync(req.Body, boundary);
 
+        var bookId = parts.Fields.GetValueOrDefault("bookId")?.Trim();
+        var replaceExisting = string.Equals(parts.Fields.GetValueOrDefault("replaceExisting"), "true", StringComparison.OrdinalIgnoreCase);
         var title = parts.Fields.GetValueOrDefault("title")?.Trim();
         var author = parts.Fields.GetValueOrDefault("author")?.Trim();
         var description = parts.Fields.GetValueOrDefault("description")?.Trim();
         var tags = TagNormalization.NormalizeCsvTags(parts.Fields.GetValueOrDefault("tags"));
-
-        if (string.IsNullOrEmpty(title) || string.IsNullOrEmpty(author))
-        {
-            var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRequest.WriteAsJsonAsync(new { error = "Title and author are required." });
-            return badRequest;
-        }
 
         if (parts.FileName is null || parts.FileContent is null || parts.FileContent.Length == 0)
         {
@@ -110,6 +105,100 @@ public class UploadBook
         {
             var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
             await badRequest.WriteAsJsonAsync(new { error = "Only .pdf and .epub files are allowed." });
+            return badRequest;
+        }
+
+        var tableClient = _tableServiceClient.GetTableClient("BookMetadata");
+        await tableClient.CreateIfNotExistsAsync();
+
+        if (!string.IsNullOrWhiteSpace(bookId))
+        {
+            var existing = await tableClient.GetEntityIfExistsAsync<BookMetadata>("BOOK", bookId);
+            if (!existing.HasValue || existing.Value is null)
+            {
+                var notFound = req.CreateResponse(HttpStatusCode.NotFound);
+                await notFound.WriteAsJsonAsync(new { error = "Book not found." });
+                return notFound;
+            }
+
+            var existingEntity = existing.Value;
+            var variants = BookFormatVariants.Read(existingEntity);
+
+            var isReplacing = variants.TryGetValue(formatInfo.Format, out var existingBlobPath);
+            if (isReplacing && !replaceExisting)
+            {
+                var conflict = req.CreateResponse(HttpStatusCode.Conflict);
+                await conflict.WriteAsJsonAsync(new
+                {
+                    error = $"{formatInfo.Format} already exists for this book. Confirm replacement to overwrite it.",
+                    requiresConfirmation = true,
+                    format = formatInfo.Format
+                });
+                return conflict;
+            }
+
+            var targetBlobPath = isReplacing
+                ? existingBlobPath!
+                : $"{ToFileNameBase(existingEntity.Title)}{extension.ToLowerInvariant()}";
+
+            _logger.LogInformation("{Action} format {Format} for book {BookId} at {BlobPath}", isReplacing ? "Replacing" : "Adding", formatInfo.Format, bookId, targetBlobPath);
+
+            var addContainerClient = _blobServiceClient.GetBlobContainerClient("books");
+            await addContainerClient.CreateIfNotExistsAsync();
+            var addBlobClient = addContainerClient.GetBlobClient(targetBlobPath);
+
+            if (!isReplacing && await addBlobClient.ExistsAsync())
+            {
+                var conflict = req.CreateResponse(HttpStatusCode.Conflict);
+                await conflict.WriteAsJsonAsync(new
+                {
+                    error = $"A book file named '{targetBlobPath}' already exists. Use a different title or remove the existing book first."
+                });
+                return conflict;
+            }
+
+            try
+            {
+                using var addStream = new MemoryStream(parts.FileContent);
+                await addBlobClient.UploadAsync(addStream, new BlobUploadOptions
+                {
+                    HttpHeaders = new BlobHttpHeaders { ContentType = formatInfo.ContentType },
+                    Conditions = isReplacing ? null : new BlobRequestConditions { IfNoneMatch = ETag.All }
+                });
+            }
+            catch (RequestFailedException ex) when (ex.Status == 409 || ex.Status == 412)
+            {
+                var conflict = req.CreateResponse(HttpStatusCode.Conflict);
+                await conflict.WriteAsJsonAsync(new
+                {
+                    error = $"A book file named '{targetBlobPath}' already exists. Use a different title or remove the existing book first."
+                });
+                return conflict;
+            }
+
+            variants[formatInfo.Format] = targetBlobPath;
+            BookFormatVariants.Write(existingEntity, variants);
+
+            try
+            {
+                await tableClient.UpdateEntityAsync(existingEntity, existingEntity.ETag, TableUpdateMode.Replace);
+            }
+            catch (RequestFailedException ex) when (ex.Status == 412)
+            {
+                var conflict = req.CreateResponse(HttpStatusCode.Conflict);
+                await conflict.WriteAsJsonAsync(new { error = "Book was modified by another request. Please retry." });
+                return conflict;
+            }
+
+            var updatedResponse = req.CreateResponse(HttpStatusCode.OK);
+            await updatedResponse.WriteAsJsonAsync(ToBookResponse(existingEntity));
+            return updatedResponse;
+        }
+
+        if (string.IsNullOrEmpty(title) || string.IsNullOrEmpty(author))
+        {
+            var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
+            await badRequest.WriteAsJsonAsync(new { error = "Title and author are required." });
             return badRequest;
         }
 
@@ -149,10 +238,6 @@ public class UploadBook
             return conflict;
         }
 
-        // Insert table entity
-        var tableClient = _tableServiceClient.GetTableClient("BookMetadata");
-        await tableClient.CreateIfNotExistsAsync();
-
         var entity = new BookMetadata
         {
             PartitionKey = "BOOK",
@@ -164,20 +249,36 @@ public class UploadBook
             Description = string.IsNullOrEmpty(description) ? null : description,
             Tags = string.Join("|", tags)
         };
+        BookFormatVariants.Write(entity, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            [formatInfo.Format] = blobPath
+        });
 
         await tableClient.AddEntityAsync(entity);
 
         var response = req.CreateResponse(HttpStatusCode.Created);
-        await response.WriteAsJsonAsync(new
+        await response.WriteAsJsonAsync(ToBookResponse(entity));
+        return response;
+    }
+
+    private static object ToBookResponse(BookMetadata entity)
+    {
+        var blobPaths = BookFormatVariants.Read(entity);
+        var formats = BookFormatVariants.GetFormats(blobPaths);
+        var tags = TagNormalization.NormalizePipeDelimitedTags(entity.Tags);
+
+        return new
         {
-            id = rowKey,
-            title,
-            author,
-            format = formatInfo.Format,
+            id = entity.RowKey,
+            title = entity.Title,
+            author = entity.Author,
+            format = entity.Format,
+            blobPath = entity.BlobPath,
+            formats,
+            blobPaths,
             description = entity.Description,
             tags
-        });
-        return response;
+        };
     }
 
     private static string ToFileNameBase(string title)

@@ -10,13 +10,25 @@ const author = ref('')
 const description = ref('')
 const tags = ref([])
 const tagInput = ref('')
-const file = ref(null)
+const primaryFile = ref(null)
+const secondaryFile = ref(null)
 const submitting = ref(false)
 const error = ref('')
 const success = ref('')
 
 function onFileChange(e) {
-  file.value = e.target.files[0] || null
+  primaryFile.value = e.target.files[0] || null
+}
+
+function onSecondaryFileChange(e) {
+  secondaryFile.value = e.target.files[0] || null
+}
+
+function getFormatFromFileName(name) {
+  const ext = name.split('.').pop()?.toLowerCase()
+  if (ext === 'pdf') return 'PDF'
+  if (ext === 'epub') return 'EPUB'
+  return ''
 }
 
 function addTagFromInput() {
@@ -65,48 +77,82 @@ async function handleSubmit() {
     return
   }
 
-  if (!file.value) {
+  if (!primaryFile.value) {
     error.value = 'Please select a file to upload.'
     return
   }
 
-  const ext = file.value.name.split('.').pop()?.toLowerCase()
-  if (ext !== 'pdf' && ext !== 'epub') {
+  const primaryFormat = getFormatFromFileName(primaryFile.value.name)
+  if (!primaryFormat) {
     error.value = 'Only .pdf and .epub files are allowed.'
+    return
+  }
+
+  const secondaryFormat = secondaryFile.value ? getFormatFromFileName(secondaryFile.value.name) : ''
+  if (secondaryFile.value && !secondaryFormat) {
+    error.value = 'Optional second file must be .pdf or .epub.'
+    return
+  }
+
+  if (secondaryFile.value && primaryFormat === secondaryFormat) {
+    error.value = 'Primary and secondary files must be different formats.'
     return
   }
 
   submitting.value = true
 
   try {
-    const formData = new FormData()
-    formData.append('title', title.value.trim())
-    formData.append('author', author.value.trim())
-    formData.append('description', description.value.trim())
-    formData.append('tags', tags.value.join(','))
-    formData.append('file', file.value)
+    const createForm = new FormData()
+    createForm.append('title', title.value.trim())
+    createForm.append('author', author.value.trim())
+    createForm.append('description', description.value.trim())
+    createForm.append('tags', tags.value.join(','))
+    createForm.append('file', primaryFile.value)
 
-    const res = await fetch(`${apiBase}/api/uploadBook`, {
+    const createRes = await fetch(`${apiBase}/api/uploadBook`, {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: formData
+      body: createForm
     })
 
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}))
+    if (!createRes.ok) {
+      const data = await createRes.json().catch(() => ({}))
       throw new Error(data.error || 'Upload failed.')
     }
 
-    success.value = 'Book uploaded successfully!'
+    const created = await createRes.json().catch(() => ({}))
+
+    if (secondaryFile.value) {
+      const addForm = new FormData()
+      addForm.append('bookId', created.id)
+      addForm.append('file', secondaryFile.value)
+
+      const addRes = await fetch(`${apiBase}/api/uploadBook`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: addForm
+      })
+
+      if (!addRes.ok) {
+        const data = await addRes.json().catch(() => ({}))
+        throw new Error(data.error || 'Primary format uploaded, but failed to upload second format.')
+      }
+    }
+
+    success.value = secondaryFile.value
+      ? 'Book uploaded with both formats successfully!'
+      : 'Book uploaded successfully!'
     title.value = ''
     author.value = ''
     description.value = ''
     tags.value = []
     tagInput.value = ''
-    file.value = null
-    // Reset the file input
-    const fileInput = document.querySelector('.file-input')
-    if (fileInput) fileInput.value = ''
+    primaryFile.value = null
+    secondaryFile.value = null
+    const primaryInput = document.querySelector('.primary-file-input')
+    if (primaryInput) primaryInput.value = ''
+    const secondaryInput = document.querySelector('.secondary-file-input')
+    if (secondaryInput) secondaryInput.value = ''
   } catch (e) {
     error.value = e.message
   } finally {
@@ -195,14 +241,27 @@ function signOut() {
         </div>
 
         <div class="form-group">
-          <label for="file">File <span class="required">*</span></label>
+          <label for="file">Primary file <span class="required">*</span></label>
           <input
             id="file"
-            class="file-input"
+            class="primary-file-input"
             type="file"
             accept=".pdf,.epub"
             :disabled="submitting"
             @change="onFileChange"
+          />
+          <p class="hint">Upload either PDF or EPUB first.</p>
+        </div>
+
+        <div class="form-group">
+          <label for="file-secondary">Optional second file</label>
+          <input
+            id="file-secondary"
+            class="secondary-file-input"
+            type="file"
+            accept=".pdf,.epub"
+            :disabled="submitting"
+            @change="onSecondaryFileChange"
           />
           <p class="hint">Accepted formats: PDF, EPUB (max 50 MB)</p>
         </div>

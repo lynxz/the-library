@@ -1,19 +1,22 @@
 <script setup>
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { getAuthHeaders, apiBase } from '../services/auth.js'
 import { MAX_TAGS, MAX_TAG_LENGTH, normalizeTag } from '../services/tags.js'
+import ConfirmModal from './ConfirmModal.vue'
 
 const props = defineProps({
   id: { type: String, required: true },
   title: { type: String, required: true },
   author: { type: String, required: true },
-  format: { type: String, required: true },
-  blobPath: { type: String, required: true },
+  format: { type: String, default: '' },
+  blobPath: { type: String, default: '' },
+  formats: { type: Array, default: () => [] },
+  blobPaths: { type: Object, default: () => ({}) },
   description: { type: String, default: '' },
   tags: { type: Array, default: () => [] }
 })
 
-const emit = defineEmits(['tags-updated'])
+const emit = defineEmits(['tags-updated', 'formats-updated'])
 
 const downloading = ref(false)
 const editingTags = ref(false)
@@ -21,6 +24,67 @@ const tagsDraft = ref([])
 const tagInput = ref('')
 const savingTags = ref(false)
 const tagError = ref('')
+const selectedFormat = ref('')
+const addFormatFile = ref(null)
+const addingFormat = ref(false)
+const formatError = ref('')
+const showReplaceConfirm = ref(false)
+const replaceConfirmMessage = ref('')
+const pendingReplaceFormat = ref('')
+let pendingReplaceFile = null
+
+const availableFormats = computed(() => {
+  const normalized = (Array.isArray(props.formats) ? props.formats : [])
+    .map((f) => String(f || '').toUpperCase())
+    .filter((f) => f === 'PDF' || f === 'EPUB')
+
+  if (normalized.length > 0) {
+    return [...new Set(normalized)]
+  }
+
+  const legacy = String(props.format || '').toUpperCase()
+  return legacy === 'PDF' || legacy === 'EPUB' ? [legacy] : []
+})
+
+const blobPathByFormat = computed(() => {
+  const mapped = {}
+  if (props.blobPaths && typeof props.blobPaths === 'object') {
+    for (const [format, path] of Object.entries(props.blobPaths)) {
+      const normalizedFormat = String(format || '').toUpperCase()
+      if ((normalizedFormat === 'PDF' || normalizedFormat === 'EPUB') && typeof path === 'string' && path) {
+        mapped[normalizedFormat] = path
+      }
+    }
+  }
+
+  if (Object.keys(mapped).length === 0) {
+    const legacy = String(props.format || '').toUpperCase()
+    if ((legacy === 'PDF' || legacy === 'EPUB') && props.blobPath) {
+      mapped[legacy] = props.blobPath
+    }
+  }
+
+  return mapped
+})
+
+const missingFormat = computed(() => {
+  const set = new Set(availableFormats.value)
+  if (set.has('PDF') && !set.has('EPUB')) return 'EPUB'
+  if (set.has('EPUB') && !set.has('PDF')) return 'PDF'
+  return ''
+})
+
+const missingFormatAccept = computed(() => (missingFormat.value === 'PDF' ? '.pdf' : '.epub'))
+
+watch(
+  availableFormats,
+  (formats) => {
+    if (!formats.includes(selectedFormat.value)) {
+      selectedFormat.value = formats[0] || ''
+    }
+  },
+  { immediate: true }
+)
 
 function startEditTags() {
   tagsDraft.value = Array.isArray(props.tags) ? [...props.tags] : []
@@ -101,11 +165,108 @@ async function saveTags() {
   }
 }
 
+function onAddFormatFileChange(e) {
+  addFormatFile.value = e.target.files[0] || null
+  formatError.value = ''
+}
+
+async function addMissingFormat() {
+  formatError.value = ''
+
+  if (!missingFormat.value) {
+    formatError.value = 'Both PDF and EPUB are already available.'
+    return
+  }
+
+  if (!addFormatFile.value) {
+    formatError.value = `Please select a ${missingFormat.value} file.`
+    return
+  }
+
+  const ext = addFormatFile.value.name.split('.').pop()?.toLowerCase()
+  const expectedExt = missingFormat.value.toLowerCase()
+  if (ext !== expectedExt) {
+    formatError.value = `Please upload a .${expectedExt} file for ${missingFormat.value}.`
+    return
+  }
+
+  await doUploadFormat(addFormatFile.value, false)
+}
+
+async function doUploadFormat(file, replace) {
+  addingFormat.value = true
+
+  try {
+    const formData = new FormData()
+    formData.append('bookId', props.id)
+    if (replace) formData.append('replaceExisting', 'true')
+    formData.append('file', file)
+
+    const res = await fetch(`${apiBase}/api/uploadBook`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: formData
+    })
+
+    const data = await res.json().catch(() => ({}))
+
+    if (res.status === 409 && data.requiresConfirmation) {
+      pendingReplaceFile = file
+      pendingReplaceFormat.value = data.format || ''
+      replaceConfirmMessage.value = data.error || `Replace existing ${data.format || ''} file?`
+      showReplaceConfirm.value = true
+      return
+    }
+
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to add format.')
+    }
+
+    addFormatFile.value = null
+    pendingReplaceFile = null
+    emit('formats-updated', {
+      formats: data.formats || [],
+      blobPaths: data.blobPaths || {}
+    })
+    if (pendingReplaceFormat.value || missingFormat.value) {
+      selectedFormat.value = pendingReplaceFormat.value || missingFormat.value
+    }
+    pendingReplaceFormat.value = ''
+  } catch (e) {
+    formatError.value = e.message
+  } finally {
+    addingFormat.value = false
+  }
+}
+
+async function onReplaceConfirmed() {
+  showReplaceConfirm.value = false
+  const file = pendingReplaceFile
+  pendingReplaceFile = null
+  if (file) {
+    await doUploadFormat(file, true)
+  }
+}
+
+function onReplaceCancelled() {
+  showReplaceConfirm.value = false
+  pendingReplaceFile = null
+  pendingReplaceFormat.value = ''
+  replaceConfirmMessage.value = ''
+}
+
 async function download() {
+  const format = selectedFormat.value
+  const selectedBlobPath = blobPathByFormat.value[format]
+  if (!selectedBlobPath) {
+    alert('No file is available for the selected format.')
+    return
+  }
+
   downloading.value = true
   try {
     const res = await fetch(
-      `${apiBase}/api/getDownloadUrl?blobPath=${encodeURIComponent(props.blobPath)}`,
+      `${apiBase}/api/getDownloadUrl?blobPath=${encodeURIComponent(selectedBlobPath)}`,
       { headers: getAuthHeaders() }
     )
     if (!res.ok) throw new Error('Failed to get download link')
@@ -122,7 +283,18 @@ async function download() {
 <template>
   <div class="book-card">
     <div class="book-info">
-      <span class="format-badge">{{ format }}</span>
+      <div class="format-pills" v-if="availableFormats.length">
+        <button
+          v-for="fmt in availableFormats"
+          :key="fmt"
+          type="button"
+          class="format-pill"
+          :class="{ active: selectedFormat === fmt }"
+          @click="selectedFormat = fmt"
+        >
+          {{ fmt }}
+        </button>
+      </div>
       <h2 class="book-title">{{ title }}</h2>
       <p class="book-author">{{ author }}</p>
       <div v-if="editingTags" class="tags-editor">
@@ -153,11 +325,34 @@ async function download() {
         </div>
         <button class="edit-tags-button" @click="startEditTags">Edit tags</button>
       </div>
+      <div v-if="missingFormat" class="add-format-panel">
+        <label :for="`add-format-${id}`">Add {{ missingFormat }} format</label>
+        <input
+          :id="`add-format-${id}`"
+          type="file"
+          :accept="missingFormatAccept"
+          :disabled="addingFormat"
+          @change="onAddFormatFileChange"
+        />
+        <button class="small-button" :disabled="addingFormat" @click="addMissingFormat">
+          {{ addingFormat ? 'Uploading...' : `Add ${missingFormat}` }}
+        </button>
+        <p v-if="formatError" class="tag-error">{{ formatError }}</p>
+      </div>
       <p v-if="description" class="book-description">{{ description }}</p>
     </div>
     <button class="download-button" :disabled="downloading" @click="download">
-      {{ downloading ? 'Preparing...' : 'Download' }}
+      {{ downloading ? 'Preparing...' : `Download ${selectedFormat || ''}` }}
     </button>
+    <ConfirmModal
+      v-if="showReplaceConfirm"
+      title="Replace existing file?"
+      :message="replaceConfirmMessage"
+      confirm-label="Replace"
+      :destructive="true"
+      @confirm="onReplaceConfirmed"
+      @cancel="onReplaceCancelled"
+    />
   </div>
 </template>
 
@@ -182,16 +377,28 @@ async function download() {
   flex: 1;
 }
 
-.format-badge {
-  display: inline-block;
-  padding: 2px 10px;
-  border-radius: 4px;
+.format-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.format-pill {
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 4px 12px;
   font-size: 12px;
   font-weight: 600;
-  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.format-pill.active {
+  border-color: var(--accent-border);
   background: var(--accent-bg);
   color: var(--accent);
-  margin-bottom: 12px;
 }
 
 .book-title {
@@ -298,6 +505,27 @@ async function download() {
   font-size: 12px;
   cursor: pointer;
   margin-bottom: 10px;
+}
+
+.add-format-panel {
+  margin: 8px 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.add-format-panel label {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.add-format-panel input {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--bg);
+  color: var(--text-h);
+  font-size: 12px;
 }
 
 .download-button {

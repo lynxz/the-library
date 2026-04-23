@@ -97,6 +97,17 @@ function onBookTagsUpdated(bookId, tags) {
   updateKnownTags(books.value)
 }
 
+function onBookFormatsUpdated(bookId, payload) {
+  const idx = books.value.findIndex((book) => book.id === bookId)
+  if (idx >= 0) {
+    books.value[idx] = {
+      ...books.value[idx],
+      formats: payload.formats,
+      blobPaths: payload.blobPaths
+    }
+  }
+}
+
 function signOut() {
   clearToken()
   router.push('/login')
@@ -169,9 +180,12 @@ onMounted(() => {
           :author="book.author"
           :format="book.format"
           :blob-path="book.blobPath"
+          :formats="book.formats || []"
+          :blob-paths="book.blobPaths || {}"
           :description="book.description"
           :tags="book.tags || []"
           @tags-updated="(tags) => onBookTagsUpdated(book.id, tags)"
+          @formats-updated="(payload) => onBookFormatsUpdated(book.id, payload)"
         />
       </div>
     </main>

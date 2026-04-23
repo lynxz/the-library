@@ -14,6 +14,7 @@ public class BookMetadata : ITableEntity
     public string Author { get; set; } = string.Empty;
     public string Format { get; set; } = string.Empty; // "PDF" or "EPUB"
     public string BlobPath { get; set; } = string.Empty;
+    public string? FormatBlobPaths { get; set; }
     public string? Description { get; set; }
     public string Tags { get; set; } = string.Empty;
 }

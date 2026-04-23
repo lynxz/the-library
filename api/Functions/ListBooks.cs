@@ -46,6 +46,8 @@ public class ListBooks
         await foreach (var entity in tableClient.QueryAsync<BookMetadata>())
         {
             var tags = TagNormalization.NormalizePipeDelimitedTags(entity.Tags);
+            var blobPaths = BookFormatVariants.Read(entity);
+            var formats = BookFormatVariants.GetFormats(blobPaths);
 
             if (requiredTags.Count > 0 && !requiredTags.All(tags.Contains))
             {
@@ -59,6 +61,8 @@ public class ListBooks
                 author = entity.Author,
                 format = entity.Format,
                 blobPath = entity.BlobPath,
+                formats,
+                blobPaths,
                 description = entity.Description,
                 tags
             });
