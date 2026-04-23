@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { getAuthHeaders, apiBase } from '../services/auth.js'
 import { MAX_TAGS, MAX_TAG_LENGTH, normalizeTag } from '../services/tags.js'
 import ConfirmModal from './ConfirmModal.vue'
+import AddFormatModal from './AddFormatModal.vue'
 
 const props = defineProps({
   id: { type: String, required: true },
@@ -28,6 +29,7 @@ const selectedFormat = ref('')
 const addFormatFile = ref(null)
 const addingFormat = ref(false)
 const formatError = ref('')
+const showAddFormatModal = ref(false)
 const showReplaceConfirm = ref(false)
 const replaceConfirmMessage = ref('')
 const pendingReplaceFormat = ref('')
@@ -73,8 +75,6 @@ const missingFormat = computed(() => {
   if (set.has('EPUB') && !set.has('PDF')) return 'PDF'
   return ''
 })
-
-const missingFormatAccept = computed(() => (missingFormat.value === 'PDF' ? '.pdf' : '.epub'))
 
 watch(
   availableFormats,
@@ -165,32 +165,21 @@ async function saveTags() {
   }
 }
 
-function onAddFormatFileChange(e) {
-  addFormatFile.value = e.target.files[0] || null
+function openAddFormatModal() {
+  formatError.value = ''
+  addFormatFile.value = null
+  showAddFormatModal.value = true
+}
+
+function closeAddFormatModal() {
+  showAddFormatModal.value = false
+  addFormatFile.value = null
   formatError.value = ''
 }
 
-async function addMissingFormat() {
-  formatError.value = ''
-
-  if (!missingFormat.value) {
-    formatError.value = 'Both PDF and EPUB are already available.'
-    return
-  }
-
-  if (!addFormatFile.value) {
-    formatError.value = `Please select a ${missingFormat.value} file.`
-    return
-  }
-
-  const ext = addFormatFile.value.name.split('.').pop()?.toLowerCase()
-  const expectedExt = missingFormat.value.toLowerCase()
-  if (ext !== expectedExt) {
-    formatError.value = `Please upload a .${expectedExt} file for ${missingFormat.value}.`
-    return
-  }
-
-  await doUploadFormat(addFormatFile.value, false)
+async function onAddFormatSubmit(file) {
+  addFormatFile.value = file
+  await doUploadFormat(file, false)
 }
 
 async function doUploadFormat(file, replace) {
@@ -224,6 +213,7 @@ async function doUploadFormat(file, replace) {
 
     addFormatFile.value = null
     pendingReplaceFile = null
+    showAddFormatModal.value = false
     emit('formats-updated', {
       formats: data.formats || [],
       blobPaths: data.blobPaths || {}
@@ -325,25 +315,24 @@ async function download() {
         </div>
         <button class="edit-tags-button" @click="startEditTags">Edit tags</button>
       </div>
-      <div v-if="missingFormat" class="add-format-panel">
-        <label :for="`add-format-${id}`">Add {{ missingFormat }} format</label>
-        <input
-          :id="`add-format-${id}`"
-          type="file"
-          :accept="missingFormatAccept"
-          :disabled="addingFormat"
-          @change="onAddFormatFileChange"
-        />
-        <button class="small-button" :disabled="addingFormat" @click="addMissingFormat">
-          {{ addingFormat ? 'Uploading...' : `Add ${missingFormat}` }}
+      <div v-if="missingFormat" class="add-format-row">
+        <button class="small-button" @click="openAddFormatModal">
+          + Add {{ missingFormat }}
         </button>
-        <p v-if="formatError" class="tag-error">{{ formatError }}</p>
       </div>
       <p v-if="description" class="book-description">{{ description }}</p>
     </div>
     <button class="download-button" :disabled="downloading" @click="download">
       {{ downloading ? 'Preparing...' : `Download ${selectedFormat || ''}` }}
     </button>
+    <AddFormatModal
+      v-if="showAddFormatModal"
+      :format="missingFormat"
+      :uploading="addingFormat"
+      :api-error="formatError"
+      @submit="onAddFormatSubmit"
+      @cancel="closeAddFormatModal"
+    />
     <ConfirmModal
       v-if="showReplaceConfirm"
       title="Replace existing file?"
@@ -507,25 +496,8 @@ async function download() {
   margin-bottom: 10px;
 }
 
-.add-format-panel {
+.add-format-row {
   margin: 8px 0 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.add-format-panel label {
-  font-size: 12px;
-  color: var(--text);
-}
-
-.add-format-panel input {
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 8px 10px;
-  background: var(--bg);
-  color: var(--text-h);
-  font-size: 12px;
 }
 
 .download-button {
