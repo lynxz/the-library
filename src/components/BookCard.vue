@@ -369,6 +369,7 @@ async function download() {
 .format-pills {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 8px;
   margin-bottom: 12px;
 }
