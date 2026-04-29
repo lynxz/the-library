@@ -558,7 +558,7 @@ async function download() {
 .card-actions {
   margin-top: 16px;
   display: flex;
-  gap: 10px;
+  justify-content: center;
 }
 
 .delete-error {
