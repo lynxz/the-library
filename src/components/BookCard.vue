@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { ApiError, get, postForm, putJson } from '../services/apiClient.js'
+import { ApiError, deleteRequest, get, postForm, putJson } from '../services/apiClient.js'
 import { MAX_TAGS, MAX_TAG_LENGTH } from '../services/tags.js'
 import { useTagInput } from '../composables/useTagInput.js'
 import ConfirmModal from './ConfirmModal.vue'
@@ -8,6 +8,7 @@ import AddFormatModal from './AddFormatModal.vue'
 
 const props = defineProps({
   id: { type: String, required: true },
+  isAdmin: { type: Boolean, default: false },
   title: { type: String, required: true },
   author: { type: String, required: true },
   format: { type: String, default: '' },
@@ -18,7 +19,7 @@ const props = defineProps({
   tags: { type: Array, default: () => [] }
 })
 
-const emit = defineEmits(['tags-updated', 'formats-updated'])
+const emit = defineEmits(['tags-updated', 'formats-updated', 'deleted'])
 
 const downloading = ref(false)
 const editingTags = ref(false)
@@ -33,6 +34,9 @@ const showAddFormatModal = ref(false)
 const showReplaceConfirm = ref(false)
 const replaceConfirmMessage = ref('')
 const pendingReplaceFormat = ref('')
+const showDeleteConfirm = ref(false)
+const deleting = ref(false)
+const deleteError = ref('')
 let pendingReplaceFile = null
 
 const {
@@ -203,6 +207,29 @@ function onReplaceCancelled() {
   replaceConfirmMessage.value = ''
 }
 
+function openDeleteConfirm() {
+  deleteError.value = ''
+  showDeleteConfirm.value = true
+}
+
+function onDeleteCancelled() {
+  showDeleteConfirm.value = false
+}
+
+async function onDeleteConfirmed() {
+  deleteError.value = ''
+  deleting.value = true
+  try {
+    await deleteRequest(`/api/books/${encodeURIComponent(props.id)}`)
+    showDeleteConfirm.value = false
+    emit('deleted', props.id)
+  } catch (e) {
+    deleteError.value = e.message
+  } finally {
+    deleting.value = false
+  }
+}
+
 async function download() {
   const format = selectedFormat.value
   const selectedBlobPath = blobPathByFormat.value[format]
@@ -275,9 +302,15 @@ async function download() {
       </div>
       <p v-if="description" class="book-description">{{ description }}</p>
     </div>
-    <button class="download-button" :disabled="downloading" @click="download">
+    <p v-if="deleteError" class="delete-error">{{ deleteError }}</p>
+    <div class="card-actions">
+      <button v-if="isAdmin" class="delete-button" :disabled="deleting" @click="openDeleteConfirm">
+        {{ deleting ? 'Deleting...' : 'Delete book' }}
+      </button>
+      <button class="download-button" :disabled="downloading" @click="download">
       {{ downloading ? 'Preparing...' : `Download ${selectedFormat || ''}` }}
-    </button>
+      </button>
+    </div>
     <AddFormatModal
       v-if="showAddFormatModal"
       :format="missingFormat"
@@ -294,6 +327,15 @@ async function download() {
       :destructive="true"
       @confirm="onReplaceConfirmed"
       @cancel="onReplaceCancelled"
+    />
+    <ConfirmModal
+      v-if="showDeleteConfirm"
+      title="Delete this book?"
+      message="This deletes only the book metadata and removes it from the library list. Blob files are kept in storage."
+      confirm-label="Delete"
+      :destructive="true"
+      @confirm="onDeleteConfirmed"
+      @cancel="onDeleteCancelled"
     />
   </div>
 </template>
@@ -455,7 +497,6 @@ async function download() {
 }
 
 .download-button {
-  margin-top: 16px;
   padding: 10px 20px;
   border-radius: 6px;
   border: 1px solid var(--accent-border);
@@ -475,5 +516,38 @@ async function download() {
 .download-button:disabled {
   opacity: 0.6;
   cursor: wait;
+}
+
+.card-actions {
+  margin-top: 16px;
+  display: flex;
+  gap: 10px;
+}
+
+.delete-button {
+  padding: 10px 16px;
+  border-radius: 6px;
+  border: 1px solid #c0392b;
+  background: rgba(192, 57, 43, 0.1);
+  color: #c0392b;
+  font-size: 13px;
+  font-family: var(--sans);
+  cursor: pointer;
+}
+
+.delete-button:hover:not(:disabled) {
+  background: #c0392b;
+  color: #fff;
+}
+
+.delete-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.delete-error {
+  margin: 10px 0 0;
+  color: #b71c1c;
+  font-size: 12px;
 }
 </style>

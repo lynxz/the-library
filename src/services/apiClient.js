@@ -73,6 +73,13 @@ export function putJson(path, payload, options = {}) {
   })
 }
 
+export function deleteRequest(path, options = {}) {
+  return request(path, {
+    ...options,
+    method: 'DELETE'
+  })
+}
+
 export function postForm(path, formData, options = {}) {
   return request(path, {
     ...options,

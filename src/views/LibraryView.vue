@@ -106,6 +106,11 @@ function onBookFormatsUpdated(bookId, payload) {
   }
 }
 
+function onBookDeleted(bookId) {
+  books.value = books.value.filter((book) => book.id !== bookId)
+  updateKnownTags(books.value)
+}
+
 function signOut() {
   clearToken()
   router.push('/login')
@@ -174,6 +179,7 @@ onMounted(() => {
           v-for="book in books"
           :key="book.id"
           :id="book.id"
+          :is-admin="showAdmin"
           :title="book.title"
           :author="book.author"
           :format="book.format"
@@ -184,6 +190,7 @@ onMounted(() => {
           :tags="book.tags || []"
           @tags-updated="(tags) => onBookTagsUpdated(book.id, tags)"
           @formats-updated="(payload) => onBookFormatsUpdated(book.id, payload)"
+          @deleted="() => onBookDeleted(book.id)"
         />
       </div>
     </main>
