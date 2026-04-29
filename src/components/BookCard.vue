@@ -252,6 +252,16 @@ async function download() {
 
 <template>
   <div class="book-card">
+    <button
+      v-if="isAdmin"
+      type="button"
+      class="delete-icon-button"
+      :disabled="deleting"
+      aria-label="Delete book"
+      @click="openDeleteConfirm"
+    >
+      x
+    </button>
     <div class="book-info">
       <div class="format-pills" v-if="availableFormats.length">
         <button
@@ -304,9 +314,6 @@ async function download() {
     </div>
     <p v-if="deleteError" class="delete-error">{{ deleteError }}</p>
     <div class="card-actions">
-      <button v-if="isAdmin" class="delete-button" :disabled="deleting" @click="openDeleteConfirm">
-        {{ deleting ? 'Deleting...' : 'Delete book' }}
-      </button>
       <button class="download-button" :disabled="downloading" @click="download">
       {{ downloading ? 'Preparing...' : `Download ${selectedFormat || ''}` }}
       </button>
@@ -345,11 +352,41 @@ async function download() {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  position: relative;
   padding: 24px;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--bg);
   transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.delete-icon-button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid #c0392b;
+  background: rgba(192, 57, 43, 0.1);
+  color: #c0392b;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.delete-icon-button:hover:not(:disabled) {
+  background: #c0392b;
+  color: #fff;
+}
+
+.delete-icon-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 .book-card:hover {
@@ -522,27 +559,6 @@ async function download() {
   margin-top: 16px;
   display: flex;
   gap: 10px;
-}
-
-.delete-button {
-  padding: 10px 16px;
-  border-radius: 6px;
-  border: 1px solid #c0392b;
-  background: rgba(192, 57, 43, 0.1);
-  color: #c0392b;
-  font-size: 13px;
-  font-family: var(--sans);
-  cursor: pointer;
-}
-
-.delete-button:hover:not(:disabled) {
-  background: #c0392b;
-  color: #fff;
-}
-
-.delete-button:disabled {
-  opacity: 0.6;
-  cursor: wait;
 }
 
 .delete-error {
